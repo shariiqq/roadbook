@@ -279,7 +279,7 @@
   let recording=false, watchId=null, points=[], distM=0, startT=0, timerInt=null;
   let following=true, wakeLock=null, lastFix=null, maxSpd=0;
   const NATIVE=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
-  let bgId=null;
+  let bgId=null, autosaveInt=null;
   let units='mi';            // default to miles/mph (UK road signs use mph)
   let tracks=[];             // all saved/imported tracks in memory
   let visible=new Set();     // ids currently overlaid
@@ -316,7 +316,7 @@
       const prev=points[points.length-1];
       if(prev)distM+=haversine(prev,p);
       points.push(p);
-      liveLine.setLatLngs(points.map(q=>[q.lat,q.lng]));
+      liveLine.addLatLng([p.lat,p.lng]);
       const s=(p.spd!=null)?p.spd:deriveSpeed(); if(s>maxSpd)maxSpd=s;
       if(following)map.panTo([p.lat,p.lng],{animate:true,duration:.5});
       renderStats();
@@ -353,14 +353,15 @@
     document.getElementById('recBtn').classList.add('rec');
     document.getElementById('recLabel').textContent='Stop & save';
     clearInterval(timerInt);timerInt=setInterval(renderStats,1000);renderStats();
+    clearInterval(autosaveInt);autosaveInt=setInterval(autosaveActive,60000);
     toast('Recording — keep the screen on while driving');
   }
   async function stopRecording(){
-    recording=false;await stopWatch();clearInterval(timerInt);releaseWake();
+    recording=false;await stopWatch();clearInterval(timerInt);clearInterval(autosaveInt);releaseWake();
     if(gpsMarker)gpsMarker.setIcon(gpsIcon);
     document.getElementById('recBtn').classList.remove('rec');
     document.getElementById('recLabel').textContent='Start drive';
-    if(points.length<2){toast('Drive too short to save');resetLive();return;}
+    if(points.length<2){toast('Drive too short to save');try{await Store.remove('active-recording');}catch(e){}resetLive();return;}
     const def=`Drive · ${new Date(startT).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}`;
     const name=await modal({title:'Save this drive',message:'Name it so it’s easy to find later.',input:true,value:def,ok:'Save'});
     if(name===null)return;
@@ -369,8 +370,31 @@
       start:startT,end:Date.now(),distM:Math.round(distM),durMs:Date.now()-startT,
       pts:points.map(p=>[+p.lat.toFixed(6),+p.lng.toFixed(6)]),
       times:points.map(p=>p.t)};
-    try{await Store.save(t);toast('Drive saved');}catch(e){toast('Could not save — storage unavailable');}
+    try{await Store.save(t);await Store.remove('active-recording');toast('Drive saved');}catch(e){toast('Could not save — storage unavailable');}
     await refresh();resetLive();
+  }
+  /* autosave the in-progress drive so a crash / app-kill never loses the day */
+  function activeRecord(){
+    return {id:'active-recording',active:true,name:'Unfinished drive',source:'recorded',
+      color:PALETTE[tracks.length%PALETTE.length],start:startT,end:Date.now(),
+      distM:Math.round(distM),durMs:startT?Date.now()-startT:0,
+      pts:points.map(p=>[+p.lat.toFixed(6),+p.lng.toFixed(6)]),times:points.map(p=>p.t)};
+  }
+  async function autosaveActive(){ if(!recording||points.length<2)return; try{await Store.save(activeRecord());}catch(e){} }
+  async function recoverIfNeeded(){
+    let rec=null; try{const all=await Store.list();rec=all.find(t=>t.active);}catch(e){}
+    if(!rec||!(rec.pts&&rec.pts.length>1))return;
+    const d=fmtDist(rec.distM||0);
+    const keep=await modal({title:'Unfinished drive found',message:`A drive of ${d.n} ${d.u} wasn’t saved last time — the app may have closed mid-recording. Keep it?`,ok:'Keep it'});
+    if(keep){
+      const t={id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
+        name:`Recovered · ${new Date(rec.start||Date.now()).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}`,
+        source:'recorded',color:rec.color||PALETTE[0],start:rec.start||Date.now(),end:rec.end||Date.now(),
+        distM:rec.distM||0,durMs:rec.durMs||0,pts:rec.pts,times:rec.times||rec.pts.map(()=>null)};
+      try{await Store.save(t);toast('Drive recovered');}catch(e){}
+    }
+    try{await Store.remove('active-recording');}catch(e){}
+    await refresh();
   }
   function resetLive(){points=[];distM=0;maxSpd=0;startT=0;lastFix=null;liveLine.setLatLngs([]);renderStats();}
 
@@ -570,7 +594,7 @@
   function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),3200);}
   function setLocate(on){following=on;document.getElementById('locateBtn').classList.toggle('on',on);}
   function recenter(){setLocate(true);if(lastFix)map.setView([lastFix.lat,lastFix.lng],Math.max(map.getZoom(),15),{animate:true});else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>map.setView([p.coords.latitude,p.coords.longitude],15),()=>{});}
-  async function refresh(){tracks=(await Store.list()).sort((a,b)=>b.start-a.start);document.getElementById('tracksCount').textContent=tracks.length;}
+  async function refresh(){tracks=(await Store.list()).filter(t=>!t.active).sort((a,b)=>b.start-a.start);document.getElementById('tracksCount').textContent=tracks.length;}
   function syncPanelHeight(){document.documentElement.style.setProperty('--panel-h',document.getElementById('panel').offsetHeight+'px');}
 
   /* ---------- Wiring ---------- */
@@ -589,6 +613,7 @@
   /* ---------- Boot ---------- */
   window.addEventListener('resize',syncPanelHeight);syncPanelHeight();renderStats();
   await refresh();
+  await recoverIfNeeded();
   if(Store.mode==='memory')toast('Heads up: saving needs the installed app — see the README');
   if('geolocation' in navigator){navigator.geolocation.getCurrentPosition(
     p=>{lastFix={lat:p.coords.latitude,lng:p.coords.longitude,t:Date.now(),spd:null};if(!gpsMarker)gpsMarker=L.marker([lastFix.lat,lastFix.lng],{icon:gpsIcon,zIndexOffset:1000}).addTo(map);if(following)map.setView([lastFix.lat,lastFix.lng],15);},

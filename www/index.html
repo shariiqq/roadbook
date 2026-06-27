@@ -16,6 +16,7 @@
     --bg-panel:#1A1714; --bg-panel-2:#241F1A; --bg-elev:#2E2820;
     --ink:#F5EFE6; --muted:#A89C8C; --hair:rgba(245,239,230,.10);
     --accent:#F2A24A; --accent-deep:#D67B2E; --rec:#E6483D; --good:#5FB87A;
+    --plan:#FFD23F; --cover:#2F80ED;
     --safe-b:env(safe-area-inset-bottom,0px); --safe-t:env(safe-area-inset-top,0px);
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   }
@@ -63,6 +64,24 @@
   .stat .sub{margin-top:5px;font-size:10.5px;color:var(--muted);font-weight:600;letter-spacing:.04em;font-variant-numeric:tabular-nums;height:12px;}
   .unit-toggle{cursor:pointer;color:var(--accent);font-weight:800;letter-spacing:.06em;text-transform:uppercase;}
 
+  .areaprog{display:flex;align-items:center;gap:10px;margin:2px 2px 12px;}
+  .areaprog .lbl{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--plan);font-weight:800;}
+  .areaprog .track{flex:1;height:8px;border-radius:99px;background:rgba(255,210,63,.18);overflow:hidden;}
+  .areaprog .fill{height:100%;background:var(--cover);border-radius:99px;width:0%;transition:width .4s ease;}
+  .areaprog .pct{font-size:13px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums;min-width:38px;text-align:right;}
+  .areabox{margin:12px 12px 4px;padding:14px;border-radius:16px;background:var(--bg-panel);border:1px solid var(--hair);}
+  .areabox .top{display:flex;align-items:center;gap:10px;}
+  .areabox .ic{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:rgba(255,210,63,.14);color:var(--plan);flex:0 0 auto;}
+  .areabox .ic svg{width:20px;height:20px;}
+  .areabox .info{flex:1;min-width:0;}
+  .areabox .ttl{font-size:15px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .areabox .det{font-size:12.5px;color:var(--muted);margin-top:2px;}
+  .areabox .bar{height:8px;border-radius:99px;background:rgba(255,210,63,.18);overflow:hidden;margin-top:12px;}
+  .areabox .bar i{display:block;height:100%;background:var(--cover);border-radius:99px;}
+  .areabox .acts{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+  .areabox .acts button{flex:1;min-width:84px;min-height:42px;border-radius:11px;font-size:13px;font-weight:700;cursor:pointer;border:1px solid var(--hair);background:var(--bg-elev);color:var(--ink);}
+  .areabox .acts button.primary2{background:linear-gradient(180deg,var(--plan),#E0A93B);color:#1b1205;border:none;}
+  .areabox .acts button.danger2{color:var(--rec);}
   .controls{display:flex;gap:12px;align-items:stretch;}
   .primary{flex:1;min-height:60px;border:none;border-radius:16px;cursor:pointer;
     font-size:18px;font-weight:800;letter-spacing:.02em;color:#1b1205;
@@ -122,6 +141,7 @@
   .iconbtn:active{background:var(--bg-elev);}
   .iconbtn svg{width:19px;height:19px;display:block;}
   .iconbtn.del:active{background:rgba(230,72,61,.15);color:var(--rec);}
+  .iconbtn.route.on{color:var(--plan);}
   .empty{padding:42px 26px;text-align:center;color:var(--muted);}
   .empty svg{width:42px;height:42px;opacity:.5;margin-bottom:12px;}
   .empty p{margin:0;font-size:14px;line-height:1.55;}
@@ -172,6 +192,11 @@
 
 <div class="panel" id="panel">
   <div class="grip"></div>
+  <div class="areaprog" id="areaProg" style="display:none">
+    <span class="lbl">Area</span>
+    <span class="track"><span class="fill" id="areaFill"></span></span>
+    <span class="pct" id="areaPct">0%</span>
+  </div>
   <div class="stats">
     <div class="stat">
       <div class="lab">Distance <span class="unit-toggle" id="unitToggle">mi</span></div>
@@ -208,6 +233,7 @@
     </div>
     <p><span id="sheetSub">No tracks yet</span><button class="linkbtn" id="toggleAll">Show all</button></p>
   </header>
+  <div class="areabox" id="areaBox"></div>
   <div class="routelist" id="routeList"></div>
 </div>
 
@@ -224,6 +250,7 @@
 </div>
 
 <input type="file" id="fileInput" style="display:none" multiple />
+<input type="file" id="areaInput" style="display:none" />
 <div class="toast" id="toast"></div>
 
 <script>
@@ -274,12 +301,17 @@
   let gpsMarker=null;
   const liveLine=L.polyline([],{color:css('--accent'),weight:7,opacity:.95,lineCap:'round',lineJoin:'round'}).addTo(map);
   const overlay=L.layerGroup().addTo(map);
+  const areaRenderer=L.canvas({padding:.5}), coverRenderer=L.canvas({padding:.5});
+  const boundaryLayer=L.layerGroup().addTo(map);
+  const areaLayer=L.layerGroup().addTo(map);
+  const coverLayer=L.layerGroup().addTo(map);
 
   /* ---------- State ---------- */
   let recording=false, watchId=null, points=[], distM=0, startT=0, timerInt=null;
   let following=true, wakeLock=null, lastFix=null, maxSpd=0;
   const NATIVE=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
   let bgId=null, autosaveInt=null;
+  let area=null, gridIndex=null, coverDirty=false, coverRedrawInt=null;
   let units='mi';            // default to miles/mph (UK road signs use mph)
   let tracks=[];             // all saved/imported tracks in memory
   let visible=new Set();     // ids currently overlaid
@@ -317,6 +349,7 @@
       if(prev)distM+=haversine(prev,p);
       points.push(p);
       liveLine.addLatLng([p.lat,p.lng]);
+      if(area)updateCoverageArea(p);
       const s=(p.spd!=null)?p.spd:deriveSpeed(); if(s>maxSpd)maxSpd=s;
       if(following)map.panTo([p.lat,p.lng],{animate:true,duration:.5});
       renderStats();
@@ -349,18 +382,21 @@
   async function startRecording(){
     if(!(await startWatch()))return;
     recording=true;points=[];distM=0;maxSpd=0;startT=Date.now();lastFix=null;following=true;
-    liveLine.setLatLngs([]); if(gpsMarker)gpsMarker.setIcon(gpsIconRec); setLocate(true); requestWake();
+    liveLine.setLatLngs([]); liveLine.setStyle({weight:5,opacity:.95});
+    if(gpsMarker)gpsMarker.setIcon(gpsIconRec); setLocate(true); requestWake();
     document.getElementById('recBtn').classList.add('rec');
     document.getElementById('recLabel').textContent='Stop & save';
     clearInterval(timerInt);timerInt=setInterval(renderStats,1000);renderStats();
     clearInterval(autosaveInt);autosaveInt=setInterval(autosaveActive,60000);
+    clearInterval(coverRedrawInt);coverRedrawInt=setInterval(()=>{if(coverDirty){renderCoverArea();updateAreaProg();}},4000);
     toast('Recording — keep the screen on while driving');
   }
   async function stopRecording(){
-    recording=false;await stopWatch();clearInterval(timerInt);clearInterval(autosaveInt);releaseWake();
+    recording=false;await stopWatch();clearInterval(timerInt);clearInterval(autosaveInt);clearInterval(coverRedrawInt);releaseWake();
     if(gpsMarker)gpsMarker.setIcon(gpsIcon);
     document.getElementById('recBtn').classList.remove('rec');
     document.getElementById('recLabel').textContent='Start drive';
+    renderCoverArea();if(area){updateAreaProg();try{await Store.save(area);}catch(e){}}
     if(points.length<2){toast('Drive too short to save');try{await Store.remove('active-recording');}catch(e){}resetLive();return;}
     const def=`Drive · ${new Date(startT).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}`;
     const name=await modal({title:'Save this drive',message:'Name it so it’s easy to find later.',input:true,value:def,ok:'Save'});
@@ -380,7 +416,7 @@
       distM:Math.round(distM),durMs:startT?Date.now()-startT:0,
       pts:points.map(p=>[+p.lat.toFixed(6),+p.lng.toFixed(6)]),times:points.map(p=>p.t)};
   }
-  async function autosaveActive(){ if(!recording||points.length<2)return; try{await Store.save(activeRecord());}catch(e){} }
+  async function autosaveActive(){ if(recording&&points.length>=2){try{await Store.save(activeRecord());}catch(e){}} if(area&&coverDirty){try{await Store.save(area);}catch(e){}} }
   async function recoverIfNeeded(){
     let rec=null; try{const all=await Store.list();rec=all.find(t=>t.active);}catch(e){}
     if(!rec||!(rec.pts&&rec.pts.length>1))return;
@@ -397,6 +433,100 @@
     await refresh();
   }
   function resetLive(){points=[];distM=0;maxSpd=0;startT=0;lastFix=null;liveLine.setLatLngs([]);renderStats();}
+
+  /* ---------- Area to cover (all roads yellow → blue as driven) ---------- */
+  const COVER_THRESH=25, CELL=0.0006;
+  const OVERPASS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
+  function densify(pts,stepM){
+    if(!pts||pts.length<2)return (pts||[]).slice();
+    const out=[pts[0]];
+    for(let i=1;i<pts.length;i++){
+      const a=pts[i-1],b=pts[i];
+      const d=haversine({lat:a[0],lng:a[1]},{lat:b[0],lng:b[1]});
+      if(d>stepM){const n=Math.floor(d/stepM);for(let k=1;k<=n;k++){const f=k/(n+1);out.push([a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f]);}}
+      out.push(b);
+    }
+    return out.map(p=>[+p[0].toFixed(6),+p[1].toFixed(6)]);
+  }
+  /* --- boundary parsing (KML polygon, GeoJSON, or closed GPX track) --- */
+  function coordTokens(txt){const out=[];txt.trim().split(/\s+/).forEach(tok=>{const a=tok.split(',').map(Number);if(isFinite(a[1])&&isFinite(a[0]))out.push([a[1],a[0]]);});return out;}
+  function closeRing(p){if(p.length>2){const a=p[0],b=p[p.length-1];if(a[0]!==b[0]||a[1]!==b[1])p=p.concat([a]);}return p;}
+  function findGeoPoly(g){if(!g)return null;if(g.type==='FeatureCollection'&&g.features){for(const f of g.features){const p=findGeoPoly(f);if(p)return p;}return null;}if(g.type==='Feature')return findGeoPoly(g.geometry);if(g.type==='Polygon'&&g.coordinates&&g.coordinates[0])return g.coordinates[0].map(c=>[c[1],c[0]]);if(g.type==='MultiPolygon'&&g.coordinates&&g.coordinates[0]&&g.coordinates[0][0])return g.coordinates[0][0].map(c=>[c[1],c[0]]);return null;}
+  function parseBoundary(text,filename){
+    const low=filename.toLowerCase();
+    if(low.endsWith('.json')||low.endsWith('.geojson')||/^\s*[\[{]/.test(text)){try{const p=findGeoPoly(JSON.parse(text));if(p&&p.length>2)return p;}catch(e){}}
+    let doc;try{doc=new DOMParser().parseFromString(text,'application/xml');}catch(e){return null;}
+    if(doc.querySelector&&doc.querySelector('parsererror'))return null;
+    const tag=n=>{const r=doc.getElementsByTagName(n);if(r.length)return Array.from(r);return Array.from(doc.getElementsByTagNameNS('*',n));};
+    const rings=tag('LinearRing');
+    if(rings.length){const c=rings[0].getElementsByTagName('coordinates')[0]||rings[0].getElementsByTagNameNS('*','coordinates')[0];if(c){const pts=coordTokens(c.textContent);if(pts.length>2)return pts;}}
+    const coords=tag('coordinates');
+    if(coords.length){const pts=coordTokens(coords[0].textContent);if(pts.length>2)return closeRing(pts);}
+    const tp=tag('trkpt');
+    if(tp.length>2){const pts=tp.map(p=>[+p.getAttribute('lat'),+p.getAttribute('lon')]).filter(p=>isFinite(p[0])&&isFinite(p[1]));if(pts.length>2)return closeRing(pts);}
+    return null;
+  }
+  /* --- fetch every drivable road inside the boundary from OpenStreetMap --- */
+  async function fetchRoads(boundary){
+    const poly=boundary.map(p=>`${p[0]} ${p[1]}`).join(' ');
+    const filt='motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link|road';
+    const q=`[out:json][timeout:90];way["highway"~"^(${filt})$"](poly:"${poly}");out geom;`;
+    let lastErr;
+    for(const url of OVERPASS){
+      try{const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain'},body:q});if(!res.ok)throw new Error('HTTP '+res.status);const j=await res.json();return (j.elements||[]).filter(e=>e.type==='way'&&e.geometry&&e.geometry.length>1).map(e=>e.geometry.map(g=>[g.lat,g.lon]));}catch(e){lastErr=e;}
+    }
+    throw lastErr||new Error('fetch failed');
+  }
+  async function loadAreaFile(file){
+    let text;try{text=await file.text();}catch(e){toast('Could not read that file');return;}
+    const boundary=parseBoundary(text,file.name);
+    if(!boundary||boundary.length<3){toast('No area outline found in that file');return;}
+    closeSheet();
+    toast('Downloading the roads in this area…');
+    let roads;try{roads=await fetchRoads(boundary);}catch(e){toast('Couldn’t download roads — needs internet, try again');return;}
+    if(!roads.length){toast('No roads found inside that outline');return;}
+    const dens=roads.map(r=>densify(r,20));
+    area={id:'area',area:true,name:filenameBase(file.name),boundary,roads:dens,covered:dens.map(r=>'0'.repeat(r.length)),fetchedAt:Date.now()};
+    try{await Store.save(area);}catch(e){}
+    await refresh();fitArea();
+    toast(`Area loaded — ${roads.length} roads to cover`);
+  }
+  /* --- spatial grid index for fast coverage checks --- */
+  function ckey(lat,lng){return Math.round(lat/CELL)+'_'+Math.round(lng/CELL);}
+  function buildIndex(){gridIndex=new Map();if(!area)return;area.roads.forEach((road,wi)=>road.forEach((pt,pi)=>{const k=ckey(pt[0],pt[1]);let a=gridIndex.get(k);if(!a){a=[];gridIndex.set(k,a);}a.push([wi,pi]);}));}
+  function setChar(s,i,c){return s.substring(0,i)+c+s.substring(i+1);}
+  function updateCoverageArea(p){
+    if(!area||!gridIndex)return;
+    const ci=Math.round(p.lat/CELL),cj=Math.round(p.lng/CELL);let changed=false;
+    for(let di=-1;di<=1;di++)for(let dj=-1;dj<=1;dj++){const arr=gridIndex.get((ci+di)+'_'+(cj+dj));if(!arr)continue;
+      for(const wp of arr){const wi=wp[0],pi=wp[1];if(area.covered[wi][pi]==='1')continue;const pt=area.roads[wi][pi];if(haversine(p,{lat:pt[0],lng:pt[1]})<COVER_THRESH){area.covered[wi]=setChar(area.covered[wi],pi,'1');changed=true;}}
+    }
+    if(changed)coverDirty=true;
+  }
+  function areaStats(){let tot=0,cov=0;if(area)area.covered.forEach(s=>{tot+=s.length;for(let i=0;i<s.length;i++)if(s[i]==='1')cov++;});return{tot,cov,pct:tot?cov/tot:0};}
+  function renderArea(){
+    boundaryLayer.clearLayers();areaLayer.clearLayers();coverLayer.clearLayers();
+    if(!area)return;
+    if(area.boundary&&area.boundary.length>2)L.polygon(area.boundary,{color:'#fff',weight:2,opacity:.45,dashArray:'7 7',fill:false,renderer:areaRenderer}).addTo(boundaryLayer);
+    area.roads.forEach(r=>L.polyline(r,{color:css('--plan'),weight:5,opacity:.9,lineCap:'round',lineJoin:'round',renderer:areaRenderer}).addTo(areaLayer));
+    renderCoverArea();
+  }
+  function renderCoverArea(){
+    coverLayer.clearLayers();
+    if(!area)return;
+    area.roads.forEach((road,wi)=>{const cov=area.covered[wi];let i=0;while(i<cov.length){if(cov[i]==='1'){let j=i;while(j+1<cov.length&&cov[j+1]==='1')j++;const seg=road.slice(i,Math.min(j+2,road.length));if(seg.length>1)L.polyline(seg,{color:css('--cover'),weight:5,opacity:.95,lineCap:'round',lineJoin:'round',renderer:coverRenderer}).addTo(coverLayer);i=j+1;}else i++;}});
+    coverDirty=false;
+  }
+  function fitArea(){if(!area)return;const b=L.latLngBounds(area.boundary&&area.boundary.length?area.boundary:[].concat(...area.roads));if(b.isValid()){following=false;setLocate(false);map.fitBounds(b,{padding:[40,40]});}}
+  async function resetArea(){if(!area)return;area.covered=area.roads.map(r=>'0'.repeat(r.length));try{await Store.save(area);}catch(e){}renderCoverArea();updateAreaProg();}
+  async function removeArea(){try{await Store.remove('area');}catch(e){}area=null;gridIndex=null;await refresh();}
+  function updateAreaProg(){
+    const bar=document.getElementById('areaProg');if(!bar)return;
+    if(!area){bar.style.display='none';return;}
+    const s=areaStats();bar.style.display='';
+    document.getElementById('areaPct').textContent=Math.round(s.pct*100)+'%';
+    document.getElementById('areaFill').style.width=Math.round(s.pct*100)+'%';
+  }
 
   /* ---------- Wake lock ---------- */
   async function requestWake(){try{if('wakeLock' in navigator)wakeLock=await navigator.wakeLock.request('screen');}catch(e){}}
@@ -552,8 +682,21 @@
           <button class="iconbtn del" data-del="${t.id}" aria-label="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></button>
         </div>`;}).join('');
     }
+    renderAreaBox();
     document.getElementById('scrim').classList.add('show');
     document.getElementById('sheet').classList.add('show');
+  }
+  function renderAreaBox(){
+    const el=document.getElementById('areaBox');if(!el)return;
+    const ico=`<div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l6-3 6 3 6-3v13l-6 3-6-3-6 3z"/><path d="M9 4v13M15 7v13"/></svg></div>`;
+    if(!area){
+      el.innerHTML=`<div class="top">${ico}<div class="info"><div class="ttl">Area to cover</div><div class="det">Load the boundary file from the boss</div></div></div><div class="acts"><button class="primary2" data-act="load">Load area file</button></div>`;
+      return;
+    }
+    const s=areaStats();const pct=Math.round(s.pct*100);
+    el.innerHTML=`<div class="top">${ico}<div class="info"><div class="ttl">${escapeHtml(area.name||'Area')}</div><div class="det">${area.roads.length} roads · ${pct}% covered</div></div></div>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      <div class="acts"><button data-act="load">Change</button><button data-act="reset">Reset</button><button class="danger2" data-act="remove">Remove</button></div>`;
   }
   function closeSheet(){document.getElementById('scrim').classList.remove('show');document.getElementById('sheet').classList.remove('show');}
 
@@ -594,7 +737,7 @@
   function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),3200);}
   function setLocate(on){following=on;document.getElementById('locateBtn').classList.toggle('on',on);}
   function recenter(){setLocate(true);if(lastFix)map.setView([lastFix.lat,lastFix.lng],Math.max(map.getZoom(),15),{animate:true});else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>map.setView([p.coords.latitude,p.coords.longitude],15),()=>{});}
-  async function refresh(){tracks=(await Store.list()).filter(t=>!t.active).sort((a,b)=>b.start-a.start);document.getElementById('tracksCount').textContent=tracks.length;}
+  async function refresh(){const all=(await Store.list());tracks=all.filter(t=>!t.active&&!t.area).sort((a,b)=>b.start-a.start);document.getElementById('tracksCount').textContent=tracks.length;area=all.find(t=>t.area)||null;if(area)buildIndex();else gridIndex=null;renderArea();updateAreaProg();}
   function syncPanelHeight(){document.documentElement.style.setProperty('--panel-h',document.getElementById('panel').offsetHeight+'px');}
 
   /* ---------- Wiring ---------- */
@@ -607,6 +750,13 @@
   document.getElementById('downloadBtn').addEventListener('click',downloadArea);
   document.getElementById('importBtn').addEventListener('click',()=>document.getElementById('fileInput').click());
   document.getElementById('fileInput').addEventListener('change',(e)=>{importFiles(e.target.files);e.target.value='';});
+  document.getElementById('areaInput').addEventListener('change',(e)=>{const f=e.target.files&&e.target.files[0];if(f)loadAreaFile(f);e.target.value='';});
+  document.getElementById('areaBox').addEventListener('click',async(e)=>{
+    const b=e.target.closest('[data-act]');if(!b)return;const act=b.dataset.act;
+    if(act==='load'){document.getElementById('areaInput').click();}
+    else if(act==='reset'){const ok=await modal({title:'Reset progress?',message:'All roads go back to yellow (not driven yet). The area itself stays loaded.',ok:'Reset',danger:true});if(ok){await resetArea();renderAreaBox();}}
+    else if(act==='remove'){const ok=await modal({title:'Remove area?',message:'This clears the area and its progress from the device.',ok:'Remove',danger:true});if(ok){await removeArea();renderAreaBox();}}
+  });
   document.getElementById('unitToggle').addEventListener('click',()=>{units=units==='mi'?'km':'mi';document.getElementById('unitToggle').textContent=units;document.getElementById('speedUnit').textContent=units==='mi'?'mph':'km/h';renderStats();if(document.getElementById('sheet').classList.contains('show'))openSheet();});
   map.on('dragstart',()=>{following=false;document.getElementById('locateBtn').classList.remove('on');});
 

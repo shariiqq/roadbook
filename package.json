@@ -1,0 +1,17 @@
+{
+  "name": "roadbook",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Roadbook — native Android route logger with background tracking",
+  "scripts": {
+    "build": "echo \"No web build step needed — www/ is ready to use\""
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor-community/background-geolocation": "^1.2.21"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2"
+  }
+}

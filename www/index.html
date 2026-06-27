@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Roadbook" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="theme-color" content="#1A1714" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="icons/icon-180.png" />
+<title>Roadbook</title>
+<style>
+  :root{
+    --bg-panel:#1A1714; --bg-panel-2:#241F1A; --bg-elev:#2E2820;
+    --ink:#F5EFE6; --muted:#A89C8C; --hair:rgba(245,239,230,.10);
+    --accent:#F2A24A; --accent-deep:#D67B2E; --rec:#E6483D; --good:#5FB87A;
+    --safe-b:env(safe-area-inset-bottom,0px); --safe-t:env(safe-area-inset-top,0px);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;margin:0;overflow:hidden;background:#0f0d0b;}
+  #map{position:absolute;inset:0;background:#0f0d0b;}
+  .leaflet-container{background:#0f0d0b;font-family:inherit;}
+  .leaflet-control-attribution{font-size:10px;background:rgba(26,23,20,.6)!important;color:var(--muted)!important;}
+  .leaflet-control-attribution a{color:var(--muted)!important;}
+
+  .brand{position:absolute;top:calc(var(--safe-t) + 12px);left:12px;z-index:600;
+    display:flex;align-items:center;gap:9px;background:rgba(26,23,20,.82);backdrop-filter:blur(8px);
+    border:1px solid var(--hair);border-radius:999px;padding:8px 14px 8px 11px;color:var(--ink);
+    box-shadow:0 6px 22px rgba(0,0,0,.35);}
+  .brand .pin{width:18px;height:18px;color:var(--accent);}
+  .brand b{font-size:15px;letter-spacing:.04em;font-weight:700;}
+
+  .sidebtns{position:absolute;right:12px;z-index:600;bottom:calc(var(--panel-h,250px) + 16px);
+    display:flex;flex-direction:column;gap:10px;}
+  .fbtn{width:50px;height:50px;border-radius:14px;border:1px solid var(--hair);
+    background:rgba(26,23,20,.86);backdrop-filter:blur(8px);color:var(--ink);
+    display:grid;place-items:center;cursor:pointer;box-shadow:0 6px 22px rgba(0,0,0,.35);
+    transition:transform .08s ease, color .15s ease, border-color .15s ease;}
+  .fbtn:active{transform:scale(.92);}
+  .fbtn svg{width:22px;height:22px;}
+  .fbtn.locate.on{color:var(--accent);border-color:rgba(242,162,74,.5);}
+  .fbtn.busy{color:var(--accent);}
+  .fbtn.busy svg{animation:spin 1s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .panel{position:absolute;left:0;right:0;bottom:0;z-index:650;
+    background:linear-gradient(180deg,var(--bg-panel) 0%, #15120f 100%);
+    border-top:1px solid var(--hair);border-radius:22px 22px 0 0;
+    padding:14px 16px calc(14px + var(--safe-b));box-shadow:0 -12px 40px rgba(0,0,0,.45);color:var(--ink);}
+  .grip{width:42px;height:5px;border-radius:99px;background:var(--hair);margin:0 auto 12px;}
+
+  .stats{display:grid;grid-template-columns:1fr 1.25fr 1fr;gap:10px;margin-bottom:14px;align-items:stretch;}
+  .stat{background:var(--bg-panel-2);border:1px solid var(--hair);border-radius:14px;padding:11px 13px;min-width:0;text-align:center;}
+  .stat.speed{background:linear-gradient(180deg,#2b241c,#221d17);border-color:rgba(242,162,74,.22);}
+  .stat .lab{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:700;display:flex;justify-content:center;align-items:center;gap:6px;}
+  .stat .val{margin-top:5px;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;letter-spacing:-.01em;line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .stat .big{font-size:26px;font-weight:700;}
+  .stat.speed .big{font-size:40px;color:var(--accent);}
+  .stat .u{font-size:12px;color:var(--muted);font-weight:600;margin-left:2px;}
+  .stat .sub{margin-top:5px;font-size:10.5px;color:var(--muted);font-weight:600;letter-spacing:.04em;font-variant-numeric:tabular-nums;height:12px;}
+  .unit-toggle{cursor:pointer;color:var(--accent);font-weight:800;letter-spacing:.06em;text-transform:uppercase;}
+
+  .controls{display:flex;gap:12px;align-items:stretch;}
+  .primary{flex:1;min-height:60px;border:none;border-radius:16px;cursor:pointer;
+    font-size:18px;font-weight:800;letter-spacing:.02em;color:#1b1205;
+    background:linear-gradient(180deg,var(--accent),var(--accent-deep));
+    display:flex;align-items:center;justify-content:center;gap:10px;
+    box-shadow:0 8px 22px rgba(214,123,46,.35);transition:transform .08s ease;}
+  .primary:active{transform:scale(.98);}
+  .primary.rec{color:var(--ink);background:linear-gradient(180deg,#2E2820,#211c16);
+    border:1px solid rgba(230,72,61,.45);box-shadow:0 8px 22px rgba(0,0,0,.4);}
+  .primary .dot{width:13px;height:13px;border-radius:50%;background:var(--rec);}
+  .primary.rec .dot{animation:pulse 1.3s infinite ease-in-out;}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.5;transform:scale(.8);}}
+  .ghost{min-width:62px;border:1px solid var(--hair);border-radius:16px;background:var(--bg-elev);
+    color:var(--ink);font-weight:700;cursor:pointer;padding:0 16px;display:flex;align-items:center;
+    justify-content:center;gap:8px;font-size:15px;transition:transform .08s ease;}
+  .ghost:active{transform:scale(.96);}
+  .ghost svg{width:20px;height:20px;}
+  .ghost .count{background:var(--accent);color:#1b1205;font-size:12px;font-weight:800;border-radius:999px;padding:1px 7px;min-width:20px;text-align:center;}
+
+  /* Sheet */
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.5);z-index:800;opacity:0;pointer-events:none;transition:opacity .2s ease;}
+  .scrim.show{opacity:1;pointer-events:auto;}
+  .sheet{position:absolute;left:0;right:0;bottom:0;z-index:810;
+    background:linear-gradient(180deg,var(--bg-panel-2),var(--bg-panel));
+    border-radius:22px 22px 0 0;border-top:1px solid var(--hair);max-height:80vh;
+    display:flex;flex-direction:column;transform:translateY(100%);
+    transition:transform .26s cubic-bezier(.2,.8,.2,1);padding-bottom:var(--safe-b);color:var(--ink);}
+  .sheet.show{transform:translateY(0);}
+  .sheet header{padding:16px 16px 10px;border-bottom:1px solid var(--hair);}
+  .sheet header .grip{margin-bottom:12px;}
+  .shead{display:flex;align-items:center;gap:10px;}
+  .shead h2{margin:0;font-size:19px;font-weight:800;flex:1;}
+  .pill{border:1px solid var(--hair);background:var(--bg-elev);color:var(--ink);font-size:13px;font-weight:700;
+    border-radius:999px;padding:8px 13px;cursor:pointer;display:flex;align-items:center;gap:7px;white-space:nowrap;}
+  .pill:active{transform:scale(.96);}
+  .pill svg{width:16px;height:16px;}
+  .pill.accent{background:linear-gradient(180deg,var(--accent),var(--accent-deep));color:#1b1205;border:none;}
+  .sheet header p{margin:10px 2px 0;color:var(--muted);font-size:13px;display:flex;justify-content:space-between;align-items:center;}
+  .linkbtn{background:none;border:none;color:var(--accent);font-weight:700;font-size:13px;cursor:pointer;padding:4px;}
+  .routelist{overflow-y:auto;padding:6px 10px 18px;-webkit-overflow-scrolling:touch;}
+  .route{display:flex;align-items:center;gap:11px;padding:13px 8px;border-radius:14px;}
+  .route + .route{border-top:1px solid var(--hair);}
+  .eye{flex:0 0 auto;width:38px;height:38px;border-radius:11px;border:1px solid var(--hair);background:var(--bg-elev);
+    display:grid;place-items:center;cursor:pointer;position:relative;}
+  .eye:active{transform:scale(.94);}
+  .eye .sw{width:14px;height:14px;border-radius:4px;}
+  .eye.on{border-color:transparent;}
+  .eye .check{position:absolute;right:-3px;bottom:-3px;width:15px;height:15px;border-radius:50%;background:var(--accent);
+    color:#1b1205;display:none;place-items:center;font-size:10px;font-weight:900;}
+  .eye.on .check{display:grid;}
+  .route .body{flex:1;min-width:0;cursor:pointer;}
+  .route .nm{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .route .meta{font-size:12.5px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums;}
+  .route .tag{display:inline-block;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;font-weight:800;
+    padding:1px 6px;border-radius:5px;background:var(--bg-elev);color:var(--muted);margin-left:6px;vertical-align:middle;}
+  .iconbtn{flex:0 0 auto;background:none;border:none;color:var(--muted);padding:9px;cursor:pointer;border-radius:9px;}
+  .iconbtn:active{background:var(--bg-elev);}
+  .iconbtn svg{width:19px;height:19px;display:block;}
+  .iconbtn.del:active{background:rgba(230,72,61,.15);color:var(--rec);}
+  .empty{padding:42px 26px;text-align:center;color:var(--muted);}
+  .empty svg{width:42px;height:42px;opacity:.5;margin-bottom:12px;}
+  .empty p{margin:0;font-size:14px;line-height:1.55;}
+
+  /* Modal */
+  .modal-scrim{position:absolute;inset:0;background:rgba(0,0,0,.6);z-index:900;display:none;align-items:center;justify-content:center;padding:24px;}
+  .modal-scrim.show{display:flex;}
+  .modal{width:100%;max-width:360px;background:var(--bg-panel-2);border:1px solid var(--hair);border-radius:20px;padding:22px;color:var(--ink);box-shadow:0 20px 60px rgba(0,0,0,.6);}
+  .modal h3{margin:0 0 6px;font-size:19px;font-weight:800;}
+  .modal p{margin:0 0 16px;color:var(--muted);font-size:14px;line-height:1.5;}
+  .modal input{width:100%;background:#15120f;border:1px solid var(--hair);border-radius:12px;color:var(--ink);font-size:17px;padding:13px 14px;margin-bottom:18px;outline:none;font-family:inherit;}
+  .modal input:focus{border-color:var(--accent);}
+  .modal .row{display:flex;gap:10px;}
+  .modal button{flex:1;min-height:50px;border-radius:12px;font-size:15px;font-weight:800;cursor:pointer;border:none;}
+  .modal .cancel{background:var(--bg-elev);color:var(--ink);border:1px solid var(--hair);}
+  .modal .ok{background:linear-gradient(180deg,var(--accent),var(--accent-deep));color:#1b1205;}
+  .modal .ok.danger{background:linear-gradient(180deg,#E6483D,#b8352c);color:#fff;}
+
+  .toast{position:absolute;left:50%;transform:translateX(-50%);z-index:950;bottom:calc(var(--panel-h,250px) + 22px);
+    background:#0f0d0b;border:1px solid var(--hair);color:var(--ink);padding:11px 18px;border-radius:999px;
+    font-size:14px;font-weight:600;box-shadow:0 8px 28px rgba(0,0,0,.5);opacity:0;pointer-events:none;
+    transition:opacity .25s ease;max-width:88vw;text-align:center;}
+  .toast.show{opacity:1;}
+
+  .gps-dot{width:18px;height:18px;border-radius:50%;background:#3B82F6;border:3px solid #fff;box-shadow:0 0 0 6px rgba(59,130,246,.25),0 1px 4px rgba(0,0,0,.5);}
+  .gps-dot.rec{background:var(--rec);box-shadow:0 0 0 6px rgba(230,72,61,.25),0 1px 4px rgba(0,0,0,.5);}
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div class="brand">
+  <svg class="pin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 0 1 18 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+  <b>Roadbook</b>
+</div>
+
+<div class="sidebtns">
+  <button class="fbtn locate on" id="locateBtn" aria-label="Centre on me">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="8"/></svg>
+  </button>
+  <button class="fbtn" id="downloadBtn" aria-label="Save this area for offline">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg>
+  </button>
+  <button class="fbtn" id="zoomIn" aria-label="Zoom in"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+  <button class="fbtn" id="zoomOut" aria-label="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+</div>
+
+<div class="panel" id="panel">
+  <div class="grip"></div>
+  <div class="stats">
+    <div class="stat">
+      <div class="lab">Distance <span class="unit-toggle" id="unitToggle">mi</span></div>
+      <div class="val big" id="distVal">0.00<span class="u" id="distUnit">mi</span></div>
+      <div class="sub" id="distSub"></div>
+    </div>
+    <div class="stat speed">
+      <div class="lab">Speed</div>
+      <div class="val big" id="speedVal">0<span class="u" id="speedUnit">mph</span></div>
+      <div class="sub" id="maxSpeed">max 0</div>
+    </div>
+    <div class="stat">
+      <div class="lab">Time</div>
+      <div class="val big" id="timeVal">0:00</div>
+      <div class="sub" id="timeSub"></div>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="primary" id="recBtn"><span class="dot"></span><span id="recLabel">Start drive</span></button>
+    <button class="ghost" id="tracksBtn" aria-label="Tracks">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6 3.5 7.5v11L9 17l6 1.5L20.5 17v-11L15 7.5 9 6Z"/><path d="M9 6v11M15 7.5v11"/></svg>
+      <span class="count" id="tracksCount">0</span>
+    </button>
+  </div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet">
+  <header>
+    <div class="grip"></div>
+    <div class="shead">
+      <h2>Tracks</h2>
+      <button class="pill" id="importBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 0 4 4m-4-4-4 4"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg>Import</button>
+    </div>
+    <p><span id="sheetSub">No tracks yet</span><button class="linkbtn" id="toggleAll">Show all</button></p>
+  </header>
+  <div class="routelist" id="routeList"></div>
+</div>
+
+<div class="modal-scrim" id="modalScrim">
+  <div class="modal">
+    <h3 id="mTitle">Title</h3>
+    <p id="mMsg"></p>
+    <input id="mInput" type="text" style="display:none" />
+    <div class="row">
+      <button class="cancel" id="mCancel">Cancel</button>
+      <button class="ok" id="mOk">OK</button>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="fileInput" style="display:none" multiple />
+<div class="toast" id="toast"></div>
+
+<script>
+(async function(){
+  /* ---------- Load Leaflet: bundled first (offline), CDN fallback (preview) ---------- */
+  function loadScript(src){return new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=rej;document.head.appendChild(s);});}
+  function loadCss(href){return new Promise(res=>{const l=document.createElement('link');l.rel='stylesheet';l.href=href;l.onload=res;l.onerror=res;document.head.appendChild(l);});}
+  await loadCss('vendor/leaflet/leaflet.css');
+  try { await loadScript('vendor/leaflet/leaflet.js'); }
+  catch(e){
+    await loadCss('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css');
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js');
+  }
+
+  /* ---------- Register service worker (offline) — skipped in non-https preview ---------- */
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    try { navigator.serviceWorker.register('sw.js'); } catch(e){}
+  }
+
+  /* ---------- Storage adapter: cloud → IndexedDB → memory ---------- */
+  const Store = (function(){
+    const P='route:';
+    try{
+      if(window.storage && window.storage.list){
+        return {mode:'cloud',
+          async list(){const r=await window.storage.list(P);const ks=(r&&r.keys)||[];const o=[];for(const k of ks){try{const v=await window.storage.get(k);if(v&&v.value)o.push(JSON.parse(v.value));}catch(e){}}return o;},
+          async save(t){await window.storage.set(P+t.id,JSON.stringify(t));},
+          async remove(id){await window.storage.delete(P+id);}};
+      }
+    }catch(e){}
+    if(typeof indexedDB!=='undefined'){
+      const dbp=new Promise((res,rej)=>{const q=indexedDB.open('roadbook',1);q.onupgradeneeded=()=>q.result.createObjectStore('tracks',{keyPath:'id'});q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error);});
+      const tx=(m,fn)=>dbp.then(db=>new Promise((res,rej)=>{const t=db.transaction('tracks',m);const out=fn(t.objectStore('tracks'));t.oncomplete=()=>res(out&&out.result!==undefined?out.result:undefined);t.onerror=()=>rej(t.error);}));
+      return {mode:'local',list(){return tx('readonly',s=>s.getAll());},save(t){return tx('readwrite',s=>s.put(t));},remove(id){return tx('readwrite',s=>s.delete(id));}};
+    }
+    let mem=[];return {mode:'memory',async list(){return mem.slice();},async save(t){mem=mem.filter(x=>x.id!==t.id);mem.push(t);},async remove(id){mem=mem.filter(x=>x.id!==id);}};
+  })();
+
+  /* ---------- Map (default to the UK until GPS locates) ---------- */
+  const map=L.map('map',{zoomControl:false,attributionControl:true}).setView([54.2,-2.6],6);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+
+  const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const PALETTE=['#F2A24A','#46B0C9','#5FB87A','#C78BE6','#E6738F','#5B8DEF','#E0A93B','#54C7A8','#EE8B5B','#7FD1F2'];
+  const gpsIcon=L.divIcon({className:'',html:'<div class="gps-dot"></div>',iconSize:[18,18],iconAnchor:[9,9]});
+  const gpsIconRec=L.divIcon({className:'',html:'<div class="gps-dot rec"></div>',iconSize:[18,18],iconAnchor:[9,9]});
+
+  let gpsMarker=null;
+  const liveLine=L.polyline([],{color:css('--accent'),weight:7,opacity:.95,lineCap:'round',lineJoin:'round'}).addTo(map);
+  const overlay=L.layerGroup().addTo(map);
+
+  /* ---------- State ---------- */
+  let recording=false, watchId=null, points=[], distM=0, startT=0, timerInt=null;
+  let following=true, wakeLock=null, lastFix=null, maxSpd=0;
+  const NATIVE=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
+  let bgId=null;
+  let units='mi';            // default to miles/mph (UK road signs use mph)
+  let tracks=[];             // all saved/imported tracks in memory
+  let visible=new Set();     // ids currently overlaid
+
+  /* ---------- Maths / formatting ---------- */
+  function haversine(a,b){const R=6371000,r=d=>d*Math.PI/180;const dLa=r(b.lat-a.lat),dLn=r(b.lng-a.lng),la1=r(a.lat),la2=r(b.lat);const h=Math.sin(dLa/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLn/2)**2;return 2*R*Math.asin(Math.sqrt(h));}
+  function pathDist(pts){let d=0;for(let i=1;i<pts.length;i++)d+=haversine({lat:pts[i-1][0],lng:pts[i-1][1]},{lat:pts[i][0],lng:pts[i][1]});return d;}
+  function fmtDist(m){if(units==='mi'){const mi=m/1609.344;return mi<0.1?{n:Math.round(m*3.28084),u:'ft'}:{n:mi.toFixed(mi<10?2:1),u:'mi'};}return m<1000?{n:Math.round(m),u:'m'}:{n:(m/1000).toFixed((m/1000)<10?2:1),u:'km'};}
+  function fmtSpeed(mps){if(mps==null||isNaN(mps)||mps<0)mps=0;return Math.round(units==='mi'?mps*2.23694:mps*3.6);}
+  function fmtTime(ms){const s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),x=s%60;return h>0?`${h}:${String(m).padStart(2,'0')}:${String(x).padStart(2,'0')}`:`${m}:${String(x).padStart(2,'0')}`;}
+  function dateLabel(t){const d=new Date(t);return d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})+' · '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});}
+  function escapeHtml(s){return (s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  function deriveSpeed(){if(points.length<2)return 0;const a=points[points.length-2],b=points[points.length-1];const dt=(b.t-a.t)/1000;if(dt<=0)return 0;return haversine(a,b)/dt;}
+
+  /* ---------- Live readouts ---------- */
+  function renderStats(){
+    const d=fmtDist(distM);
+    document.getElementById('distVal').innerHTML=`${d.n}<span class="u">${d.u}</span>`;
+    document.getElementById('timeVal').textContent=startT?fmtTime(Date.now()-startT):'0:00';
+    let spd=0; if(recording){spd=(lastFix&&lastFix.spd!=null)?lastFix.spd:deriveSpeed();}
+    document.getElementById('speedVal').innerHTML=`${fmtSpeed(spd)}<span class="u">${units==='mi'?'mph':'km/h'}</span>`;
+    document.getElementById('maxSpeed').textContent=`max ${fmtSpeed(maxSpd)}`;
+  }
+
+  /* ---------- Geolocation ---------- */
+  function handleFix(pos){
+    const c=pos.coords;
+    if(c.accuracy&&c.accuracy>100&&points.length)return;
+    const p={lat:c.latitude,lng:c.longitude,t:pos.timestamp,spd:(c.speed!=null?c.speed:null)};
+    lastFix=p;
+    if(!gpsMarker)gpsMarker=L.marker([p.lat,p.lng],{icon:recording?gpsIconRec:gpsIcon,zIndexOffset:1000}).addTo(map);
+    else gpsMarker.setLatLng([p.lat,p.lng]);
+    if(recording){
+      const prev=points[points.length-1];
+      if(prev)distM+=haversine(prev,p);
+      points.push(p);
+      liveLine.setLatLngs(points.map(q=>[q.lat,q.lng]));
+      const s=(p.spd!=null)?p.spd:deriveSpeed(); if(s>maxSpd)maxSpd=s;
+      if(following)map.panTo([p.lat,p.lng],{animate:true,duration:.5});
+      renderStats();
+    }else if(following&&map.getZoom()<14){map.setView([p.lat,p.lng],15);}
+  }
+  function handleErr(err){let m='Location unavailable.';if(err.code===1)m='Location is off. Allow location to record drives.';else if(err.code===2)m='No GPS signal right now.';else if(err.code===3)m='Location timed out — retrying.';toast(m);}
+  async function startWatch(){
+    if(NATIVE){
+      try{
+        const { BackgroundGeolocation }=window.Capacitor.Plugins;
+        bgId=await BackgroundGeolocation.addWatcher(
+          {backgroundTitle:'Roadbook',backgroundMessage:'Recording your drive — tap to return',requestPermissions:true,stale:false,distanceFilter:5},
+          (loc,err)=>{
+            if(err){ if(err.code==='NOT_AUTHORIZED'){toast('Set location to “Allow all the time” for background recording');} return; }
+            if(!loc)return;
+            handleFix({coords:{latitude:loc.latitude,longitude:loc.longitude,accuracy:loc.accuracy,speed:(loc.speed!=null?loc.speed:null)},timestamp:loc.time||Date.now()});
+          });
+        return true;
+      }catch(e){toast('Could not start tracking');return false;}
+    }
+    if(!('geolocation' in navigator)){toast('This device has no GPS.');return false;}
+    watchId=navigator.geolocation.watchPosition(handleFix,handleErr,{enableHighAccuracy:true,maximumAge:1000,timeout:20000});return true;
+  }
+  async function stopWatch(){
+    if(NATIVE){try{const { BackgroundGeolocation }=window.Capacitor.Plugins;if(bgId){await BackgroundGeolocation.removeWatcher({id:bgId});bgId=null;}}catch(e){}return;}
+    if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;}
+  }
+
+  /* ---------- Recording ---------- */
+  async function startRecording(){
+    if(!(await startWatch()))return;
+    recording=true;points=[];distM=0;maxSpd=0;startT=Date.now();lastFix=null;following=true;
+    liveLine.setLatLngs([]); if(gpsMarker)gpsMarker.setIcon(gpsIconRec); setLocate(true); requestWake();
+    document.getElementById('recBtn').classList.add('rec');
+    document.getElementById('recLabel').textContent='Stop & save';
+    clearInterval(timerInt);timerInt=setInterval(renderStats,1000);renderStats();
+    toast('Recording — keep the screen on while driving');
+  }
+  async function stopRecording(){
+    recording=false;await stopWatch();clearInterval(timerInt);releaseWake();
+    if(gpsMarker)gpsMarker.setIcon(gpsIcon);
+    document.getElementById('recBtn').classList.remove('rec');
+    document.getElementById('recLabel').textContent='Start drive';
+    if(points.length<2){toast('Drive too short to save');resetLive();return;}
+    const def=`Drive · ${new Date(startT).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}`;
+    const name=await modal({title:'Save this drive',message:'Name it so it’s easy to find later.',input:true,value:def,ok:'Save'});
+    if(name===null)return;
+    const t={id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
+      name:(name||def).trim()||def,source:'recorded',color:PALETTE[tracks.length%PALETTE.length],
+      start:startT,end:Date.now(),distM:Math.round(distM),durMs:Date.now()-startT,
+      pts:points.map(p=>[+p.lat.toFixed(6),+p.lng.toFixed(6)]),
+      times:points.map(p=>p.t)};
+    try{await Store.save(t);toast('Drive saved');}catch(e){toast('Could not save — storage unavailable');}
+    await refresh();resetLive();
+  }
+  function resetLive(){points=[];distM=0;maxSpd=0;startT=0;lastFix=null;liveLine.setLatLngs([]);renderStats();}
+
+  /* ---------- Wake lock ---------- */
+  async function requestWake(){try{if('wakeLock' in navigator)wakeLock=await navigator.wakeLock.request('screen');}catch(e){}}
+  function releaseWake(){try{if(wakeLock){wakeLock.release();wakeLock=null;}}catch(e){}}
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&recording)requestWake();});
+
+  /* ---------- Track overlay ---------- */
+  function renderOverlay(){
+    overlay.clearLayers();
+    tracks.forEach(t=>{
+      if(!visible.has(t.id))return;
+      L.polyline(t.pts,{color:t.color||css('--accent'),weight:6,opacity:.9,lineCap:'round',lineJoin:'round'}).addTo(overlay);
+      if(t.pts.length){
+        L.circleMarker(t.pts[0],{radius:6,color:'#fff',weight:2,fillColor:css('--good'),fillOpacity:1}).addTo(overlay);
+        L.circleMarker(t.pts[t.pts.length-1],{radius:6,color:'#fff',weight:2,fillColor:t.color,fillOpacity:1}).addTo(overlay);
+      }
+    });
+  }
+  function focusTrack(t){
+    if(!visible.has(t.id))visible.add(t.id);
+    renderOverlay();
+    const b=L.latLngBounds(t.pts);if(b.isValid()){following=false;setLocate(false);map.fitBounds(b,{padding:[60,60]});}
+    closeSheet();
+  }
+  function fitAll(){
+    let b=L.latLngBounds([]);tracks.forEach(t=>{if(visible.has(t.id))t.pts.forEach(p=>b.extend(p));});
+    if(b.isValid()){following=false;setLocate(false);map.fitBounds(b,{padding:[60,60]});}
+  }
+
+  /* ---------- GPX / KML import ---------- */
+  function parseTrackFile(text,filename){
+    const doc=new DOMParser().parseFromString(text,'application/xml');
+    if(doc.querySelector('parsererror'))return [];
+    const lower=filename.toLowerCase();
+    const out=[]; // array of {name, pts:[[lat,lng],...], times:[]}
+    const tag=n=>{const r=doc.getElementsByTagName(n);if(r.length)return Array.from(r);return Array.from(doc.getElementsByTagNameNS('*',n));};
+    if(lower.endsWith('.gpx')||doc.getElementsByTagName('gpx').length||tag('trkpt').length||tag('rtept').length){
+      const segs=tag('trkseg').length?tag('trkseg'):[doc];
+      let usedSeg=false;
+      tag('trkseg').forEach((seg,i)=>{usedSeg=true;
+        const pts=[],times=[];
+        Array.from(seg.getElementsByTagName('trkpt')).forEach(pt=>{const la=+pt.getAttribute('lat'),lo=+pt.getAttribute('lon');if(isFinite(la)&&isFinite(lo)){pts.push([la,lo]);const tEl=pt.getElementsByTagName('time')[0];times.push(tEl?Date.parse(tEl.textContent):null);}});
+        if(pts.length>1){const nm=(doc.getElementsByTagName('name')[0]||{}).textContent;out.push({name:(nm?nm.trim():'')||filenameBase(filename)+(tag('trkseg').length>1?` (${i+1})`:''),pts,times});}
+      });
+      if(!usedSeg){
+        const pts=[],times=[];
+        ['trkpt','rtept','wpt'].forEach(t=>Array.from(doc.getElementsByTagName(t)).forEach(pt=>{const la=+pt.getAttribute('lat'),lo=+pt.getAttribute('lon');if(isFinite(la)&&isFinite(lo)){pts.push([la,lo]);times.push(null);}}));
+        if(pts.length>1)out.push({name:filenameBase(filename),pts,times});
+      }
+      return out;
+    }
+    // ----- KML -----
+    // Google Earth gx:Track: <gx:coord>lon lat alt</gx:coord> (+ optional <when> timestamps)
+    const gxCoords=tag('coord'),whens=tag('when');
+    if(gxCoords.length>1){
+      const pts=[],times=[];
+      gxCoords.forEach((cn,i)=>{const a=cn.textContent.trim().split(/\s+/).map(Number);const lo=a[0],la=a[1];if(isFinite(la)&&isFinite(lo)){pts.push([la,lo]);const w=whens[i];times.push(w?Date.parse(w.textContent):null);}});
+      if(pts.length>1){let nm='';const pm=gxCoords[0].closest?gxCoords[0].closest('Placemark'):null;if(pm){const ne=pm.getElementsByTagName('name')[0]||pm.getElementsByTagNameNS('*','name')[0];if(ne)nm=ne.textContent.trim();}out.push({name:nm||filenameBase(filename),pts,times});return out;}
+    }
+    // LineString / <coordinates> blocks (lon,lat,alt)
+    const coordNodes=tag('coordinates');
+    coordNodes.forEach((cn,i)=>{
+      const pts=[];
+      cn.textContent.trim().split(/\s+/).forEach(tok=>{const a=tok.split(',').map(Number);const lo=a[0],la=a[1];if(isFinite(la)&&isFinite(lo))pts.push([la,lo]);});
+      if(pts.length>1){
+        let nm='';const pm=cn.closest?cn.closest('Placemark'):null;if(pm){const ne=pm.getElementsByTagName('name')[0]||pm.getElementsByTagNameNS('*','name')[0];if(ne)nm=ne.textContent.trim();}
+        out.push({name:nm||filenameBase(filename)+(coordNodes.length>1?` (${i+1})`:''),pts,times:pts.map(()=>null)});
+      }
+    });
+    return out;
+  }
+  function filenameBase(f){return f.replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').trim()||'Imported track';}
+
+  async function importFiles(fileList){
+    const files=Array.from(fileList||[]);if(!files.length)return;
+    let added=0,kmz=false,bad=false;
+    for(const f of files){
+      const low=f.name.toLowerCase();
+      if(low.endsWith('.kmz')){kmz=true;continue;}
+      let text;try{text=await f.text();}catch(e){bad=true;continue;}
+      let segs=[];try{segs=parseTrackFile(text,f.name);}catch(e){segs=[];}
+      if(!segs.length)bad=true;
+      for(const s of segs){
+        const t={id:'i'+Date.now()+Math.random().toString(36).slice(2,5),
+          name:s.name,source:low.endsWith('.kml')?'kml':'gpx',
+          color:PALETTE[(tracks.length+added)%PALETTE.length],
+          start:firstTime(s.times)||f.lastModified||Date.now(),end:lastTime(s.times)||0,
+          distM:Math.round(pathDist(s.pts)),durMs:durationFrom(s.times),
+          pts:s.pts.map(p=>[+p[0].toFixed(6),+p[1].toFixed(6)]),times:s.times};
+        try{await Store.save(t);added++;}catch(e){}
+      }
+    }
+    await refresh();
+    if(added){toast(`Imported ${added} track${added>1?'s':''}`);openSheet();}
+    else if(kmz)toast('That’s a .kmz (zipped) — re-export it as plain .kml and try again');
+    else if(bad)toast('Couldn’t read a track from that file');
+    else toast('No tracks found in that file');
+  }
+  function firstTime(ts){const v=(ts||[]).find(x=>x);return v||0;}
+  function lastTime(ts){for(let i=(ts||[]).length-1;i>=0;i--)if(ts[i])return ts[i];return 0;}
+  function durationFrom(ts){const a=firstTime(ts),b=lastTime(ts);return (a&&b&&b>a)?b-a:0;}
+
+  /* ---------- GPX export ---------- */
+  function trackToGpx(t){
+    const seg=t.pts.map((p,i)=>{const tm=(t.times&&t.times[i])?`<time>${new Date(t.times[i]).toISOString()}</time>`:'';return `<trkpt lat="${p[0]}" lon="${p[1]}">${tm}</trkpt>`;}).join('');
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Roadbook" xmlns="http://www.topografix.com/GPX/1/1">
+<trk><name>${escapeHtml(t.name)}</name><trkseg>${seg}</trkseg></trk>
+</gpx>`;
+  }
+  function download(filename,text,type){
+    const blob=new Blob([text],{type:type||'application/octet-stream'});
+    const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
+  }
+  function exportTrack(t){download(t.name.replace(/[^\w\-]+/g,'_')+'.gpx',trackToGpx(t),'application/gpx+xml');}
+
+  /* ---------- Offline area download ---------- */
+  function lngLatToTile(lat,lng,z){const n=2**z;const x=Math.floor((lng+180)/360*n);const r=lat*Math.PI/180;const y=Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*n);const c=v=>Math.min(Math.max(v,0),n-1);return{x:c(x),y:c(y)};}
+  async function downloadArea(){
+    const btn=document.getElementById('downloadBtn');
+    const b=map.getBounds(),z0=map.getZoom();
+    const zooms=[];for(let z=Math.max(z0-1,3);z<=Math.min(z0+2,17);z++)zooms.push(z);
+    const tiles=[];
+    for(const z of zooms){const tl=lngLatToTile(b.getNorth(),b.getWest(),z),br=lngLatToTile(b.getSouth(),b.getEast(),z);for(let x=Math.min(tl.x,br.x);x<=Math.max(tl.x,br.x);x++)for(let y=Math.min(tl.y,br.y);y<=Math.max(tl.y,br.y);y++)tiles.push({x,y,z});}
+    if(!('serviceWorker' in navigator)||!location.protocol.startsWith('http')){toast('Offline saving works once the app is installed');return;}
+    if(tiles.length>2000){toast('Area too big — zoom in a little first');return;}
+    if(!tiles.length){toast('Nothing to save here');return;}
+    btn.classList.add('busy');let done=0;const subs=['a','b','c'];
+    for(let i=0;i<tiles.length;i+=8){
+      const batch=tiles.slice(i,i+8).map(t=>{const s=subs[(t.x+t.y)%3];return fetch(`https://${s}.tile.openstreetmap.org/${t.z}/${t.x}/${t.y}.png`,{mode:'no-cors'}).catch(()=>{});});
+      await Promise.all(batch);done+=batch.length;
+      toast(`Saving map for offline… ${Math.min(100,Math.round(done/tiles.length*100))}%`);
+    }
+    btn.classList.remove('busy');toast('This area is now available offline');
+  }
+
+  /* ---------- Tracks sheet ---------- */
+  function swatch(c){return `<span class="sw" style="background:${c}"></span>`;}
+  function openSheet(){
+    const list=tracks;
+    document.getElementById('sheetSub').textContent=list.length?`${list.length} track${list.length>1?'s':''}`:'No tracks yet';
+    document.getElementById('toggleAll').textContent = (list.length&&list.every(t=>visible.has(t.id)))?'Hide all':'Show all';
+    document.getElementById('toggleAll').style.display=list.length?'':'none';
+    const el=document.getElementById('routeList');
+    if(!list.length){
+      el.innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6 3.5 7.5v11L9 17l6 1.5L20.5 17v-11L15 7.5 9 6Z"/><path d="M9 6v11M15 7.5v11"/></svg><p>No tracks yet.<br>Tap <b>Start drive</b> to record one, or <b>Import</b> a GPX/KML file.</p></div>`;
+    }else{
+      el.innerHTML=list.map(t=>{const d=fmtDist(t.distM);const on=visible.has(t.id);const dur=t.durMs?` · ${fmtTime(t.durMs)}`:'';const tag=t.source==='recorded'?'':`<span class="tag">${t.source}</span>`;
+        return `<div class="route" data-id="${t.id}">
+          <div class="eye ${on?'on':''}" data-eye="${t.id}" style="${on?`background:${t.color}22;`:''}">${swatch(t.color)}<span class="check">✓</span></div>
+          <div class="body" data-focus="${t.id}"><div class="nm">${escapeHtml(t.name)}${tag}</div><div class="meta">${dateLabel(t.start)} · ${d.n} ${d.u}${dur}</div></div>
+          <button class="iconbtn" data-export="${t.id}" aria-label="Export GPX"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg></button>
+          <button class="iconbtn del" data-del="${t.id}" aria-label="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></button>
+        </div>`;}).join('');
+    }
+    document.getElementById('scrim').classList.add('show');
+    document.getElementById('sheet').classList.add('show');
+  }
+  function closeSheet(){document.getElementById('scrim').classList.remove('show');document.getElementById('sheet').classList.remove('show');}
+
+  document.getElementById('routeList').addEventListener('click',async(e)=>{
+    const eye=e.target.closest('[data-eye]');
+    if(eye){const id=eye.dataset.eye;if(visible.has(id))visible.delete(id);else visible.add(id);renderOverlay();openSheet();return;}
+    const exp=e.target.closest('[data-export]');
+    if(exp){const t=tracks.find(x=>x.id===exp.dataset.export);if(t)exportTrack(t);return;}
+    const del=e.target.closest('[data-del]');
+    if(del){const ok=await modal({title:'Delete track?',message:'This can’t be undone.',ok:'Delete',danger:true});if(ok){visible.delete(del.dataset.del);await Store.remove(del.dataset.del);await refresh();renderOverlay();openSheet();}return;}
+    const f=e.target.closest('[data-focus]');
+    if(f){const t=tracks.find(x=>x.id===f.dataset.focus);if(t)focusTrack(t);}
+  });
+
+  document.getElementById('toggleAll').addEventListener('click',()=>{
+    const allOn=tracks.length&&tracks.every(t=>visible.has(t.id));
+    if(allOn){visible.clear();renderOverlay();}
+    else{tracks.forEach(t=>visible.add(t.id));renderOverlay();fitAll();}
+    openSheet();
+  });
+
+  /* ---------- Modal ---------- */
+  function modal({title,message,input=false,value='',ok='OK',danger=false}){
+    return new Promise(resolve=>{
+      const sc=document.getElementById('modalScrim');
+      document.getElementById('mTitle').textContent=title;
+      document.getElementById('mMsg').textContent=message||'';
+      const inp=document.getElementById('mInput');inp.style.display=input?'block':'none';inp.value=value;
+      const okB=document.getElementById('mOk'),caB=document.getElementById('mCancel');
+      okB.textContent=ok;okB.classList.toggle('danger',!!danger);sc.classList.add('show');
+      if(input)setTimeout(()=>{inp.focus();inp.select();},60);
+      function done(v){sc.classList.remove('show');okB.onclick=caB.onclick=null;resolve(v);}
+      okB.onclick=()=>done(input?inp.value:true);caB.onclick=()=>done(input?null:false);
+    });
+  }
+
+  /* ---------- Misc ---------- */
+  function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),3200);}
+  function setLocate(on){following=on;document.getElementById('locateBtn').classList.toggle('on',on);}
+  function recenter(){setLocate(true);if(lastFix)map.setView([lastFix.lat,lastFix.lng],Math.max(map.getZoom(),15),{animate:true});else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>map.setView([p.coords.latitude,p.coords.longitude],15),()=>{});}
+  async function refresh(){tracks=(await Store.list()).sort((a,b)=>b.start-a.start);document.getElementById('tracksCount').textContent=tracks.length;}
+  function syncPanelHeight(){document.documentElement.style.setProperty('--panel-h',document.getElementById('panel').offsetHeight+'px');}
+
+  /* ---------- Wiring ---------- */
+  document.getElementById('recBtn').addEventListener('click',()=>recording?stopRecording():startRecording());
+  document.getElementById('tracksBtn').addEventListener('click',openSheet);
+  document.getElementById('scrim').addEventListener('click',closeSheet);
+  document.getElementById('locateBtn').addEventListener('click',recenter);
+  document.getElementById('zoomIn').addEventListener('click',()=>map.zoomIn());
+  document.getElementById('zoomOut').addEventListener('click',()=>map.zoomOut());
+  document.getElementById('downloadBtn').addEventListener('click',downloadArea);
+  document.getElementById('importBtn').addEventListener('click',()=>document.getElementById('fileInput').click());
+  document.getElementById('fileInput').addEventListener('change',(e)=>{importFiles(e.target.files);e.target.value='';});
+  document.getElementById('unitToggle').addEventListener('click',()=>{units=units==='mi'?'km':'mi';document.getElementById('unitToggle').textContent=units;document.getElementById('speedUnit').textContent=units==='mi'?'mph':'km/h';renderStats();if(document.getElementById('sheet').classList.contains('show'))openSheet();});
+  map.on('dragstart',()=>{following=false;document.getElementById('locateBtn').classList.remove('on');});
+
+  /* ---------- Boot ---------- */
+  window.addEventListener('resize',syncPanelHeight);syncPanelHeight();renderStats();
+  await refresh();
+  if(Store.mode==='memory')toast('Heads up: saving needs the installed app — see the README');
+  if('geolocation' in navigator){navigator.geolocation.getCurrentPosition(
+    p=>{lastFix={lat:p.coords.latitude,lng:p.coords.longitude,t:Date.now(),spd:null};if(!gpsMarker)gpsMarker=L.marker([lastFix.lat,lastFix.lng],{icon:gpsIcon,zIndexOffset:1000}).addTo(map);if(following)map.setView([lastFix.lat,lastFix.lng],15);},
+    ()=>{},{enableHighAccuracy:true,timeout:8000});}
+})();
+</script>
+</body>
+</html>

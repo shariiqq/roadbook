@@ -1,0 +1,8 @@
+{
+  "appId": "com.roadbook.app",
+  "appName": "Roadbook",
+  "webDir": "www",
+  "android": {
+    "allowMixedContent": true
+  }
+}

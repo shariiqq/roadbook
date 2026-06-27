@@ -1,0 +1,86 @@
+ROADBOOK — NATIVE ANDROID APP
+=============================
+
+This builds Roadbook into a real installable Android app (.apk) with
+BACKGROUND TRACKING — it keeps recording the drive even when the screen is
+off or the app is in the background.
+
+You do NOT need Android Studio. The app is built for you in the cloud by a
+free GitHub account, and you just download the finished .apk.
+
+Roughly 20–30 minutes the first time. Take it one step at a time.
+
+
+WHAT YOU'LL DO
+  A. Put this project on GitHub (free).
+  B. GitHub builds the .apk automatically.
+  C. Download the .apk and install it on the tablet.
+
+
+------------------------------------------------------------
+A.  PUT THE PROJECT ON GITHUB
+------------------------------------------------------------
+1. Make a free account at https://github.com  (skip if you have one).
+2. Click the "+" top-right  ->  "New repository".
+3. Name it  roadbook  ->  keep it Private  ->  click "Create repository".
+4. On the next page click the link  "uploading an existing file".
+5. UNZIP this download first, then drag EVERYTHING inside the
+   "roadbook-native" folder onto the upload area. Important:
+     - Drag the *contents* (package.json, www, scripts, .github, etc.),
+       not the outer folder.
+     - The ".github" folder is essential — make sure it uploads. If your
+       computer hides folders starting with a dot, turn on "show hidden
+       files", or upload that folder separately.
+6. Scroll down, click "Commit changes".
+
+
+------------------------------------------------------------
+B.  LET GITHUB BUILD THE APP
+------------------------------------------------------------
+7. Click the "Actions" tab at the top of your repository.
+8. You'll see "Build Roadbook APK" running (yellow dot). Wait ~5–10 min
+   until it turns into a green tick.
+9. Click into that finished run. At the bottom under "Artifacts" you'll see
+   "roadbook-apk". Click it to download — it saves a .zip.
+10. Unzip it. Inside is  app-debug.apk  — that's your app.
+
+   If it shows a RED cross instead of green: click the failed step to see
+   the error, copy the red text, and send it to me — it's almost always a
+   one-line version fix and I'll sort it.
+
+
+------------------------------------------------------------
+C.  INSTALL IT ON THE TABLET
+------------------------------------------------------------
+11. Get app-debug.apk onto the tablet — email it to yourself, or put it in
+    Google Drive / a USB cable, and open it on the tablet.
+12. Tap the .apk. Android will warn it's from an "unknown source" — tap
+    "Settings" -> allow the app you're installing from (Files/Chrome/Drive)
+    to install apps -> go back -> Install.
+13. Open Roadbook. When it asks for location, choose "Allow all the time".
+    (This is what makes background recording work — "While using the app"
+    is not enough.)
+14. If it asks to allow notifications, say yes — Android shows a small
+    "Recording your drive" note while tracking; that's normal and required
+    for background tracking.
+
+Done. He can press Start drive, lock the tablet or switch apps, and it keeps
+recording the route.
+
+
+UPDATING IT LATER
+  When I send you a new version, replace the changed files in the GitHub
+  repo (Add file -> Upload files, drop the new ones, Commit). GitHub
+  rebuilds automatically; download the new .apk from Actions and install it
+  over the old one.
+
+
+NOTES
+  - The map background still uses OpenStreetMap and the per-area offline
+    download, same as before. Whole-UK offline is a separate upgrade.
+  - This is a "debug" build, which is perfect for personal/family use and
+    needs no Google Play account. It just can't be sold on the Play Store
+    as-is.
+  - Keep "battery optimisation" OFF for Roadbook (tablet Settings -> Apps ->
+    Roadbook -> Battery -> Unrestricted) so Android never kills tracking on
+    long drives.

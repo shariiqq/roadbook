@@ -1,0 +1,49 @@
+name: Build Roadbook APK
+
+# Runs automatically on every upload/push, and can be started by hand
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Add the Android project
+        run: npx cap add android
+
+      - name: Copy web files into the Android project
+        run: npx cap sync android
+
+      - name: Add location permissions
+        run: node scripts/fix-android.mjs
+
+      - name: Build the APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload the APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: roadbook-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

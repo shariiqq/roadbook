@@ -64,25 +64,11 @@
   .stat .sub{margin-top:5px;font-size:10.5px;color:var(--muted);font-weight:600;letter-spacing:.04em;font-variant-numeric:tabular-nums;height:12px;}
   .unit-toggle{cursor:pointer;color:var(--accent);font-weight:800;letter-spacing:.06em;text-transform:uppercase;}
 
-  .areaprog{display:flex;align-items:center;gap:10px;margin:2px 2px 12px;}
-  .areaprog .lbl{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--plan);font-weight:800;}
-  .areaprog .track{flex:1;height:8px;border-radius:99px;background:rgba(255,210,63,.18);overflow:hidden;}
-  .areaprog .fill{height:100%;background:var(--cover);border-radius:99px;width:0%;transition:width .4s ease;}
-  .areaprog .pct{font-size:13px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums;min-width:38px;text-align:right;}
-  .areabox{margin:12px 12px 4px;padding:14px;border-radius:16px;background:var(--bg-panel);border:1px solid var(--hair);}
-  .areabox .top{display:flex;align-items:center;gap:10px;}
-  .areabox .ic{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:rgba(255,210,63,.14);color:var(--plan);flex:0 0 auto;}
-  .areabox .ic svg{width:20px;height:20px;}
-  .areabox .info{flex:1;min-width:0;}
-  .areabox .ttl{font-size:15px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .areabox .det{font-size:12.5px;color:var(--muted);margin-top:2px;}
-  .areabox .bar{height:8px;border-radius:99px;background:rgba(255,210,63,.18);overflow:hidden;margin-top:12px;}
-  .areabox .bar i{display:block;height:100%;background:var(--cover);border-radius:99px;}
-  .areabox .acts{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
-  .areabox .acts button{flex:1;min-width:84px;min-height:42px;border-radius:11px;font-size:13px;font-weight:700;cursor:pointer;border:1px solid var(--hair);background:var(--bg-elev);color:var(--ink);}
-  .areabox .acts button.primary2{background:linear-gradient(180deg,var(--plan),#E0A93B);color:#1b1205;border:none;}
-  .areabox .acts button.danger2{color:var(--rec);}
   .controls{display:flex;gap:12px;align-items:stretch;}
+  .sheetfoot{display:flex;gap:10px;padding:12px 14px;border-top:1px solid var(--hair);}
+  .sheetfoot .pill{flex:1;justify-content:center;min-height:46px;}
+  .sheetfoot .pill.finish{background:var(--bg-elev);color:var(--rec);border:1px solid rgba(230,72,61,.3);}
+  .grouplabel{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:800;padding:14px 10px 4px;}
   .primary{flex:1;min-height:60px;border:none;border-radius:16px;cursor:pointer;
     font-size:18px;font-weight:800;letter-spacing:.02em;color:#1b1205;
     background:linear-gradient(180deg,var(--accent),var(--accent-deep));
@@ -192,11 +178,6 @@
 
 <div class="panel" id="panel">
   <div class="grip"></div>
-  <div class="areaprog" id="areaProg" style="display:none">
-    <span class="lbl">Area</span>
-    <span class="track"><span class="fill" id="areaFill"></span></span>
-    <span class="pct" id="areaPct">0%</span>
-  </div>
   <div class="stats">
     <div class="stat">
       <div class="lab">Distance <span class="unit-toggle" id="unitToggle">mi</span></div>
@@ -233,8 +214,10 @@
     </div>
     <p><span id="sheetSub">No tracks yet</span><button class="linkbtn" id="toggleAll">Show all</button></p>
   </header>
-  <div class="areabox" id="areaBox"></div>
   <div class="routelist" id="routeList"></div>
+  <div class="sheetfoot">
+    <button class="pill finish" id="clearBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>Clear all (new route)</button>
+  </div>
 </div>
 
 <div class="modal-scrim" id="modalScrim">
@@ -250,7 +233,6 @@
 </div>
 
 <input type="file" id="fileInput" style="display:none" multiple />
-<input type="file" id="areaInput" style="display:none" />
 <div class="toast" id="toast"></div>
 
 <script>
@@ -294,24 +276,24 @@
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
 
   const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-  const PALETTE=['#F2A24A','#46B0C9','#5FB87A','#C78BE6','#E6738F','#5B8DEF','#E0A93B','#54C7A8','#EE8B5B','#7FD1F2'];
+  const PALETTE=['#2DD4BF','#5FB87A','#C78BE6','#5B8DEF','#E0A93B','#9B8CFF','#54C7A8','#7FD1F2','#EE8B5B','#F2A24A'];
+  const OUTLINE='#22D3EE'; // boss's area outline (cyan)
+  const OUTLINES=['#22D3EE','#A78BFA','#34D399','#60A5FA','#F472B6','#FBBF24'];
+  function dayKey(ts){return new Date(ts).toLocaleDateString('en-GB');}
+  function colorForDay(ts){const rec=tracks.filter(t=>t.source==='recorded');const days=[...new Set(rec.map(t=>dayKey(t.start)))];let i=days.indexOf(dayKey(ts));if(i<0)i=days.length;return PALETTE[i%PALETTE.length];}
   const gpsIcon=L.divIcon({className:'',html:'<div class="gps-dot"></div>',iconSize:[18,18],iconAnchor:[9,9]});
   const gpsIconRec=L.divIcon({className:'',html:'<div class="gps-dot rec"></div>',iconSize:[18,18],iconAnchor:[9,9]});
 
   let gpsMarker=null;
-  const liveLine=L.polyline([],{color:css('--accent'),weight:7,opacity:.95,lineCap:'round',lineJoin:'round'}).addTo(map);
+  const liveLine=L.polyline([],{color:css('--rec'),weight:6,opacity:.95,lineCap:'round',lineJoin:'round'}).addTo(map);
   const overlay=L.layerGroup().addTo(map);
-  const areaRenderer=L.canvas({padding:.5}), coverRenderer=L.canvas({padding:.5});
-  const boundaryLayer=L.layerGroup().addTo(map);
-  const areaLayer=L.layerGroup().addTo(map);
-  const coverLayer=L.layerGroup().addTo(map);
 
   /* ---------- State ---------- */
   let recording=false, watchId=null, points=[], distM=0, startT=0, timerInt=null;
   let following=true, wakeLock=null, lastFix=null, maxSpd=0;
   const NATIVE=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
   let bgId=null, autosaveInt=null;
-  let area=null, gridIndex=null, coverDirty=false, coverRedrawInt=null;
+  let coverRedrawInt=null;
   let units='mi';            // default to miles/mph (UK road signs use mph)
   let tracks=[];             // all saved/imported tracks in memory
   let visible=new Set();     // ids currently overlaid
@@ -349,7 +331,6 @@
       if(prev)distM+=haversine(prev,p);
       points.push(p);
       liveLine.addLatLng([p.lat,p.lng]);
-      if(area)updateCoverageArea(p);
       const s=(p.spd!=null)?p.spd:deriveSpeed(); if(s>maxSpd)maxSpd=s;
       if(following)map.panTo([p.lat,p.lng],{animate:true,duration:.5});
       renderStats();
@@ -382,41 +363,39 @@
   async function startRecording(){
     if(!(await startWatch()))return;
     recording=true;points=[];distM=0;maxSpd=0;startT=Date.now();lastFix=null;following=true;
-    liveLine.setLatLngs([]); liveLine.setStyle({weight:5,opacity:.95});
+    liveLine.setLatLngs([]);
     if(gpsMarker)gpsMarker.setIcon(gpsIconRec); setLocate(true); requestWake();
     document.getElementById('recBtn').classList.add('rec');
     document.getElementById('recLabel').textContent='Stop & save';
     clearInterval(timerInt);timerInt=setInterval(renderStats,1000);renderStats();
     clearInterval(autosaveInt);autosaveInt=setInterval(autosaveActive,60000);
-    clearInterval(coverRedrawInt);coverRedrawInt=setInterval(()=>{if(coverDirty){renderCoverArea();updateAreaProg();}},4000);
     toast('Recording — keep the screen on while driving');
   }
   async function stopRecording(){
-    recording=false;await stopWatch();clearInterval(timerInt);clearInterval(autosaveInt);clearInterval(coverRedrawInt);releaseWake();
+    recording=false;await stopWatch();clearInterval(timerInt);clearInterval(autosaveInt);releaseWake();
     if(gpsMarker)gpsMarker.setIcon(gpsIcon);
     document.getElementById('recBtn').classList.remove('rec');
     document.getElementById('recLabel').textContent='Start drive';
-    renderCoverArea();if(area){updateAreaProg();try{await Store.save(area);}catch(e){}}
     if(points.length<2){toast('Drive too short to save');try{await Store.remove('active-recording');}catch(e){}resetLive();return;}
     const def=`Drive · ${new Date(startT).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}`;
     const name=await modal({title:'Save this drive',message:'Name it so it’s easy to find later.',input:true,value:def,ok:'Save'});
     if(name===null)return;
     const t={id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
-      name:(name||def).trim()||def,source:'recorded',color:PALETTE[tracks.length%PALETTE.length],
+      name:(name||def).trim()||def,source:'recorded',color:colorForDay(startT),
       start:startT,end:Date.now(),distM:Math.round(distM),durMs:Date.now()-startT,
       pts:points.map(p=>[+p.lat.toFixed(6),+p.lng.toFixed(6)]),
       times:points.map(p=>p.t)};
     try{await Store.save(t);await Store.remove('active-recording');toast('Drive saved');}catch(e){toast('Could not save — storage unavailable');}
-    await refresh();resetLive();
+    await refresh();visible.add(t.id);renderOverlay();resetLive();
   }
   /* autosave the in-progress drive so a crash / app-kill never loses the day */
   function activeRecord(){
     return {id:'active-recording',active:true,name:'Unfinished drive',source:'recorded',
-      color:PALETTE[tracks.length%PALETTE.length],start:startT,end:Date.now(),
+      color:colorForDay(startT),start:startT,end:Date.now(),
       distM:Math.round(distM),durMs:startT?Date.now()-startT:0,
       pts:points.map(p=>[+p.lat.toFixed(6),+p.lng.toFixed(6)]),times:points.map(p=>p.t)};
   }
-  async function autosaveActive(){ if(recording&&points.length>=2){try{await Store.save(activeRecord());}catch(e){}} if(area&&coverDirty){try{await Store.save(area);}catch(e){}} }
+  async function autosaveActive(){ if(recording&&points.length>=2){try{await Store.save(activeRecord());}catch(e){}} }
   async function recoverIfNeeded(){
     let rec=null; try{const all=await Store.list();rec=all.find(t=>t.active);}catch(e){}
     if(!rec||!(rec.pts&&rec.pts.length>1))return;
@@ -425,7 +404,7 @@
     if(keep){
       const t={id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
         name:`Recovered · ${new Date(rec.start||Date.now()).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}`,
-        source:'recorded',color:rec.color||PALETTE[0],start:rec.start||Date.now(),end:rec.end||Date.now(),
+        source:'recorded',color:rec.color||colorForDay(rec.start||Date.now()),start:rec.start||Date.now(),end:rec.end||Date.now(),
         distM:rec.distM||0,durMs:rec.durMs||0,pts:rec.pts,times:rec.times||rec.pts.map(()=>null)};
       try{await Store.save(t);toast('Drive recovered');}catch(e){}
     }
@@ -433,100 +412,6 @@
     await refresh();
   }
   function resetLive(){points=[];distM=0;maxSpd=0;startT=0;lastFix=null;liveLine.setLatLngs([]);renderStats();}
-
-  /* ---------- Area to cover (all roads yellow → blue as driven) ---------- */
-  const COVER_THRESH=25, CELL=0.0006;
-  const OVERPASS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
-  function densify(pts,stepM){
-    if(!pts||pts.length<2)return (pts||[]).slice();
-    const out=[pts[0]];
-    for(let i=1;i<pts.length;i++){
-      const a=pts[i-1],b=pts[i];
-      const d=haversine({lat:a[0],lng:a[1]},{lat:b[0],lng:b[1]});
-      if(d>stepM){const n=Math.floor(d/stepM);for(let k=1;k<=n;k++){const f=k/(n+1);out.push([a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f]);}}
-      out.push(b);
-    }
-    return out.map(p=>[+p[0].toFixed(6),+p[1].toFixed(6)]);
-  }
-  /* --- boundary parsing (KML polygon, GeoJSON, or closed GPX track) --- */
-  function coordTokens(txt){const out=[];txt.trim().split(/\s+/).forEach(tok=>{const a=tok.split(',').map(Number);if(isFinite(a[1])&&isFinite(a[0]))out.push([a[1],a[0]]);});return out;}
-  function closeRing(p){if(p.length>2){const a=p[0],b=p[p.length-1];if(a[0]!==b[0]||a[1]!==b[1])p=p.concat([a]);}return p;}
-  function findGeoPoly(g){if(!g)return null;if(g.type==='FeatureCollection'&&g.features){for(const f of g.features){const p=findGeoPoly(f);if(p)return p;}return null;}if(g.type==='Feature')return findGeoPoly(g.geometry);if(g.type==='Polygon'&&g.coordinates&&g.coordinates[0])return g.coordinates[0].map(c=>[c[1],c[0]]);if(g.type==='MultiPolygon'&&g.coordinates&&g.coordinates[0]&&g.coordinates[0][0])return g.coordinates[0][0].map(c=>[c[1],c[0]]);return null;}
-  function parseBoundary(text,filename){
-    const low=filename.toLowerCase();
-    if(low.endsWith('.json')||low.endsWith('.geojson')||/^\s*[\[{]/.test(text)){try{const p=findGeoPoly(JSON.parse(text));if(p&&p.length>2)return p;}catch(e){}}
-    let doc;try{doc=new DOMParser().parseFromString(text,'application/xml');}catch(e){return null;}
-    if(doc.querySelector&&doc.querySelector('parsererror'))return null;
-    const tag=n=>{const r=doc.getElementsByTagName(n);if(r.length)return Array.from(r);return Array.from(doc.getElementsByTagNameNS('*',n));};
-    const rings=tag('LinearRing');
-    if(rings.length){const c=rings[0].getElementsByTagName('coordinates')[0]||rings[0].getElementsByTagNameNS('*','coordinates')[0];if(c){const pts=coordTokens(c.textContent);if(pts.length>2)return pts;}}
-    const coords=tag('coordinates');
-    if(coords.length){const pts=coordTokens(coords[0].textContent);if(pts.length>2)return closeRing(pts);}
-    const tp=tag('trkpt');
-    if(tp.length>2){const pts=tp.map(p=>[+p.getAttribute('lat'),+p.getAttribute('lon')]).filter(p=>isFinite(p[0])&&isFinite(p[1]));if(pts.length>2)return closeRing(pts);}
-    return null;
-  }
-  /* --- fetch every drivable road inside the boundary from OpenStreetMap --- */
-  async function fetchRoads(boundary){
-    const poly=boundary.map(p=>`${p[0]} ${p[1]}`).join(' ');
-    const filt='motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link|road';
-    const q=`[out:json][timeout:90];way["highway"~"^(${filt})$"](poly:"${poly}");out geom;`;
-    let lastErr;
-    for(const url of OVERPASS){
-      try{const res=await fetch(url,{method:'POST',headers:{'Content-Type':'text/plain'},body:q});if(!res.ok)throw new Error('HTTP '+res.status);const j=await res.json();return (j.elements||[]).filter(e=>e.type==='way'&&e.geometry&&e.geometry.length>1).map(e=>e.geometry.map(g=>[g.lat,g.lon]));}catch(e){lastErr=e;}
-    }
-    throw lastErr||new Error('fetch failed');
-  }
-  async function loadAreaFile(file){
-    let text;try{text=await file.text();}catch(e){toast('Could not read that file');return;}
-    const boundary=parseBoundary(text,file.name);
-    if(!boundary||boundary.length<3){toast('No area outline found in that file');return;}
-    closeSheet();
-    toast('Downloading the roads in this area…');
-    let roads;try{roads=await fetchRoads(boundary);}catch(e){toast('Couldn’t download roads — needs internet, try again');return;}
-    if(!roads.length){toast('No roads found inside that outline');return;}
-    const dens=roads.map(r=>densify(r,20));
-    area={id:'area',area:true,name:filenameBase(file.name),boundary,roads:dens,covered:dens.map(r=>'0'.repeat(r.length)),fetchedAt:Date.now()};
-    try{await Store.save(area);}catch(e){}
-    await refresh();fitArea();
-    toast(`Area loaded — ${roads.length} roads to cover`);
-  }
-  /* --- spatial grid index for fast coverage checks --- */
-  function ckey(lat,lng){return Math.round(lat/CELL)+'_'+Math.round(lng/CELL);}
-  function buildIndex(){gridIndex=new Map();if(!area)return;area.roads.forEach((road,wi)=>road.forEach((pt,pi)=>{const k=ckey(pt[0],pt[1]);let a=gridIndex.get(k);if(!a){a=[];gridIndex.set(k,a);}a.push([wi,pi]);}));}
-  function setChar(s,i,c){return s.substring(0,i)+c+s.substring(i+1);}
-  function updateCoverageArea(p){
-    if(!area||!gridIndex)return;
-    const ci=Math.round(p.lat/CELL),cj=Math.round(p.lng/CELL);let changed=false;
-    for(let di=-1;di<=1;di++)for(let dj=-1;dj<=1;dj++){const arr=gridIndex.get((ci+di)+'_'+(cj+dj));if(!arr)continue;
-      for(const wp of arr){const wi=wp[0],pi=wp[1];if(area.covered[wi][pi]==='1')continue;const pt=area.roads[wi][pi];if(haversine(p,{lat:pt[0],lng:pt[1]})<COVER_THRESH){area.covered[wi]=setChar(area.covered[wi],pi,'1');changed=true;}}
-    }
-    if(changed)coverDirty=true;
-  }
-  function areaStats(){let tot=0,cov=0;if(area)area.covered.forEach(s=>{tot+=s.length;for(let i=0;i<s.length;i++)if(s[i]==='1')cov++;});return{tot,cov,pct:tot?cov/tot:0};}
-  function renderArea(){
-    boundaryLayer.clearLayers();areaLayer.clearLayers();coverLayer.clearLayers();
-    if(!area)return;
-    if(area.boundary&&area.boundary.length>2)L.polygon(area.boundary,{color:'#fff',weight:2,opacity:.45,dashArray:'7 7',fill:false,renderer:areaRenderer}).addTo(boundaryLayer);
-    area.roads.forEach(r=>L.polyline(r,{color:css('--plan'),weight:5,opacity:.9,lineCap:'round',lineJoin:'round',renderer:areaRenderer}).addTo(areaLayer));
-    renderCoverArea();
-  }
-  function renderCoverArea(){
-    coverLayer.clearLayers();
-    if(!area)return;
-    area.roads.forEach((road,wi)=>{const cov=area.covered[wi];let i=0;while(i<cov.length){if(cov[i]==='1'){let j=i;while(j+1<cov.length&&cov[j+1]==='1')j++;const seg=road.slice(i,Math.min(j+2,road.length));if(seg.length>1)L.polyline(seg,{color:css('--cover'),weight:5,opacity:.95,lineCap:'round',lineJoin:'round',renderer:coverRenderer}).addTo(coverLayer);i=j+1;}else i++;}});
-    coverDirty=false;
-  }
-  function fitArea(){if(!area)return;const b=L.latLngBounds(area.boundary&&area.boundary.length?area.boundary:[].concat(...area.roads));if(b.isValid()){following=false;setLocate(false);map.fitBounds(b,{padding:[40,40]});}}
-  async function resetArea(){if(!area)return;area.covered=area.roads.map(r=>'0'.repeat(r.length));try{await Store.save(area);}catch(e){}renderCoverArea();updateAreaProg();}
-  async function removeArea(){try{await Store.remove('area');}catch(e){}area=null;gridIndex=null;await refresh();}
-  function updateAreaProg(){
-    const bar=document.getElementById('areaProg');if(!bar)return;
-    if(!area){bar.style.display='none';return;}
-    const s=areaStats();bar.style.display='';
-    document.getElementById('areaPct').textContent=Math.round(s.pct*100)+'%';
-    document.getElementById('areaFill').style.width=Math.round(s.pct*100)+'%';
-  }
 
   /* ---------- Wake lock ---------- */
   async function requestWake(){try{if('wakeLock' in navigator)wakeLock=await navigator.wakeLock.request('screen');}catch(e){}}
@@ -538,8 +423,9 @@
     overlay.clearLayers();
     tracks.forEach(t=>{
       if(!visible.has(t.id))return;
-      L.polyline(t.pts,{color:t.color||css('--accent'),weight:6,opacity:.9,lineCap:'round',lineJoin:'round'}).addTo(overlay);
-      if(t.pts.length){
+      const isOutline=t.source!=='recorded';
+      L.polyline(t.pts,{color:t.color||css('--accent'),weight:isOutline?4:6,opacity:.9,lineCap:'round',lineJoin:'round',dashArray:isOutline?'10 8':null}).addTo(overlay);
+      if(t.pts.length&&!isOutline){
         L.circleMarker(t.pts[0],{radius:6,color:'#fff',weight:2,fillColor:css('--good'),fillOpacity:1}).addTo(overlay);
         L.circleMarker(t.pts[t.pts.length-1],{radius:6,color:'#fff',weight:2,fillColor:t.color,fillOpacity:1}).addTo(overlay);
       }
@@ -557,10 +443,18 @@
   }
 
   /* ---------- GPX / KML import ---------- */
+  function geojsonToSegs(g,base){
+    const out=[];
+    function addRing(coords,name){const pts=coords.map(c=>[c[1],c[0]]).filter(p=>isFinite(p[0])&&isFinite(p[1]));if(pts.length>1)out.push({name:name||base,pts,times:pts.map(()=>null)});}
+    function geom(gm,name){if(!gm)return;const t=gm.type,c=gm.coordinates;if(t==='LineString')addRing(c,name);else if(t==='MultiLineString')c.forEach(ls=>addRing(ls,name));else if(t==='Polygon')c.forEach(r=>addRing(r,name));else if(t==='MultiPolygon')c.forEach(poly=>poly.forEach(r=>addRing(r,name)));else if(t==='GeometryCollection'&&gm.geometries)gm.geometries.forEach(x=>geom(x,name));}
+    function feat(f){if(!f)return;if(f.type==='FeatureCollection'&&f.features)f.features.forEach(feat);else if(f.type==='Feature')geom(f.geometry,f.properties&&(f.properties.name||f.properties.Name));else if(f.type)geom(f,null);}
+    feat(g);return out;
+  }
   function parseTrackFile(text,filename){
+    const lower=filename.toLowerCase();
+    if(lower.endsWith('.json')||lower.endsWith('.geojson')||/^\s*[\[{]/.test(text)){try{const segs=geojsonToSegs(JSON.parse(text),filenameBase(filename));if(segs.length)return segs;}catch(e){}}
     const doc=new DOMParser().parseFromString(text,'application/xml');
     if(doc.querySelector('parsererror'))return [];
-    const lower=filename.toLowerCase();
     const out=[]; // array of {name, pts:[[lat,lng],...], times:[]}
     const tag=n=>{const r=doc.getElementsByTagName(n);if(r.length)return Array.from(r);return Array.from(doc.getElementsByTagNameNS('*',n));};
     if(lower.endsWith('.gpx')||doc.getElementsByTagName('gpx').length||tag('trkpt').length||tag('rtept').length){
@@ -602,28 +496,33 @@
 
   async function importFiles(fileList){
     const files=Array.from(fileList||[]);if(!files.length)return;
-    let added=0,kmz=false,bad=false;
+    let added=0,kmz=false,bad=false,newIds=[],fileIdx=0;const base=tracks.length;
     for(const f of files){
       const low=f.name.toLowerCase();
       if(low.endsWith('.kmz')){kmz=true;continue;}
       let text;try{text=await f.text();}catch(e){bad=true;continue;}
+      if(low.endsWith('.json')){try{const j=JSON.parse(text);if(j&&j.roadbook&&Array.isArray(j.tracks)){for(const tr of j.tracks){if(tr&&tr.id&&tr.pts){try{await Store.save(tr);added++;newIds.push(tr.id);}catch(e){}}}continue;}}catch(e){}}
       let segs=[];try{segs=parseTrackFile(text,f.name);}catch(e){segs=[];}
-      if(!segs.length)bad=true;
+      if(!segs.length){bad=true;continue;}
+      const existingOutlines=tracks.filter(t=>t.source!=='recorded').length;
+      const color=OUTLINES[(existingOutlines+fileIdx)%OUTLINES.length];fileIdx++;
       for(const s of segs){
         const t={id:'i'+Date.now()+Math.random().toString(36).slice(2,5),
-          name:s.name,source:low.endsWith('.kml')?'kml':'gpx',
-          color:PALETTE[(tracks.length+added)%PALETTE.length],
-          start:firstTime(s.times)||f.lastModified||Date.now(),end:lastTime(s.times)||0,
+          name:s.name,source:low.endsWith('.kml')?'kml':((low.endsWith('.json')||low.endsWith('.geojson'))?'geojson':'gpx'),
+          color,start:firstTime(s.times)||f.lastModified||Date.now(),end:lastTime(s.times)||0,
           distM:Math.round(pathDist(s.pts)),durMs:durationFrom(s.times),
           pts:s.pts.map(p=>[+p[0].toFixed(6),+p[1].toFixed(6)]),times:s.times};
-        try{await Store.save(t);added++;}catch(e){}
+        try{await Store.save(t);added++;newIds.push(t.id);}catch(e){}
       }
     }
     await refresh();
-    if(added){toast(`Imported ${added} track${added>1?'s':''}`);openSheet();}
-    else if(kmz)toast('That’s a .kmz (zipped) — re-export it as plain .kml and try again');
-    else if(bad)toast('Couldn’t read a track from that file');
-    else toast('No tracks found in that file');
+    newIds.forEach(id=>visible.add(id));renderOverlay();
+    let b=L.latLngBounds([]);tracks.forEach(t=>{if(newIds.indexOf(t.id)>=0)t.pts.forEach(p=>b.extend(p));});
+    if(b.isValid()){following=false;setLocate(false);map.fitBounds(b,{padding:[50,50]});}
+    if(added)toast(`Loaded ${added} outline${added>1?'s':''}`);
+    else if(kmz)toast('That’s a .kmz (zipped) — re-export as plain .kml and try again');
+    else if(bad)toast('No outline found in that file');
+    else toast('Nothing to load');
   }
   function firstTime(ts){const v=(ts||[]).find(x=>x);return v||0;}
   function lastTime(ts){for(let i=(ts||[]).length-1;i>=0;i--)if(ts[i])return ts[i];return 0;}
@@ -637,11 +536,36 @@
 <trk><name>${escapeHtml(t.name)}</name><trkseg>${seg}</trkseg></trk>
 </gpx>`;
   }
-  function download(filename,text,type){
-    const blob=new Blob([text],{type:type||'application/octet-stream'});
+  async function saveFile(filename,text,mime){
+    if(NATIVE&&window.Capacitor.Plugins.Filesystem){
+      try{
+        const { Filesystem }=window.Capacitor.Plugins;
+        const res=await Filesystem.writeFile({path:filename,data:text,directory:'CACHE',encoding:'utf8'});
+        const uri=(res&&res.uri)||'';
+        if(window.Capacitor.Plugins.Share){await window.Capacitor.Plugins.Share.share({title:filename,url:uri});}
+        else toast('Saved: '+filename);
+        return;
+      }catch(e){toast('Could not save the file');return;}
+    }
+    const blob=new Blob([text],{type:mime||'application/octet-stream'});
     const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
   }
-  function exportTrack(t){download(t.name.replace(/[^\w\-]+/g,'_')+'.gpx',trackToGpx(t),'application/gpx+xml');}
+  async function exportDays(ids,filename){const sel=tracks.filter(t=>ids.indexOf(t.id)>=0);if(!sel.length){toast('Nothing to save');return;}const data={roadbook:1,exported:Date.now(),tracks:sel};await saveFile(filename,JSON.stringify(data),'application/json');}
+  async function exportTrack(t){
+    const def=(t.name||('Roadbook '+fileDateName(t.start)));
+    const name=await modal({title:'Save as file',message:'Name this file (saves as a re-loadable .json).',input:true,value:def,ok:'Save'});
+    if(name===null)return;
+    await exportDays([t.id],(name||def).replace(/[^\w \-]+/g,'_').trim()+'.json');
+  }
+  function fileDateName(ts){const d=new Date(ts);const wd=d.toLocaleDateString('en-GB',{weekday:'short'});const dmy=d.toLocaleDateString('en-GB').replace(/\//g,'-');return `Roadbook ${wd} ${dmy}`;}
+  function dayDateName(ts){return new Date(ts).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',year:'numeric'});}
+  async function clearAll(){
+    if(!tracks.length){toast('Nothing to clear');return;}
+    const ok=await modal({title:'Clear everything?',message:'Removes all outlines and days from the device to start a new route. Save any day files you want first — this can’t be undone.',ok:'Clear all',danger:true});
+    if(!ok)return;
+    for(const t of tracks.slice()){try{await Store.remove(t.id);}catch(e){}}
+    visible.clear();await refresh();renderOverlay();toast('Cleared — ready for a new route');
+  }
 
   /* ---------- Offline area download ---------- */
   function lngLatToTile(lat,lng,z){const n=2**z;const x=Math.floor((lng+180)/360*n);const r=lat*Math.PI/180;const y=Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*n);const c=v=>Math.min(Math.max(v,0),n-1);return{x:c(x),y:c(y)};}
@@ -666,37 +590,31 @@
   /* ---------- Tracks sheet ---------- */
   function swatch(c){return `<span class="sw" style="background:${c}"></span>`;}
   function openSheet(){
-    const list=tracks;
-    document.getElementById('sheetSub').textContent=list.length?`${list.length} track${list.length>1?'s':''}`:'No tracks yet';
-    document.getElementById('toggleAll').textContent = (list.length&&list.every(t=>visible.has(t.id)))?'Hide all':'Show all';
-    document.getElementById('toggleAll').style.display=list.length?'':'none';
+    const outlines=tracks.filter(t=>t.source!=='recorded');
+    const drives=tracks.filter(t=>t.source==='recorded').slice().sort((a,b)=>b.start-a.start);
+    const total=tracks.length;
+    document.getElementById('sheetSub').textContent=total?`${drives.length} route${drives.length!==1?'s':''}${outlines.length?` · ${outlines.length} outline${outlines.length>1?'s':''}`:''}`:'Nothing yet';
+    document.getElementById('toggleAll').style.display=total?'':'none';
+    document.getElementById('toggleAll').textContent=(total&&tracks.every(t=>visible.has(t.id)))?'Hide all':'Show all';
     const el=document.getElementById('routeList');
-    if(!list.length){
-      el.innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6 3.5 7.5v11L9 17l6 1.5L20.5 17v-11L15 7.5 9 6Z"/><path d="M9 6v11M15 7.5v11"/></svg><p>No tracks yet.<br>Tap <b>Start drive</b> to record one, or <b>Import</b> a GPX/KML file.</p></div>`;
+    const SAVE=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg>`;
+    const TRASH=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>`;
+    if(!total){
+      el.innerHTML=`<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6 3.5 7.5v11L9 17l6 1.5L20.5 17v-11L15 7.5 9 6Z"/><path d="M9 6v11M15 7.5v11"/></svg><p>Nothing yet.<br>Tap <b>Start drive</b> to record a route, or <b>Import</b> an outline / saved file.</p></div>`;
     }else{
-      el.innerHTML=list.map(t=>{const d=fmtDist(t.distM);const on=visible.has(t.id);const dur=t.durMs?` · ${fmtTime(t.durMs)}`:'';const tag=t.source==='recorded'?'':`<span class="tag">${t.source}</span>`;
-        return `<div class="route" data-id="${t.id}">
-          <div class="eye ${on?'on':''}" data-eye="${t.id}" style="${on?`background:${t.color}22;`:''}">${swatch(t.color)}<span class="check">✓</span></div>
-          <div class="body" data-focus="${t.id}"><div class="nm">${escapeHtml(t.name)}${tag}</div><div class="meta">${dateLabel(t.start)} · ${d.n} ${d.u}${dur}</div></div>
-          <button class="iconbtn" data-export="${t.id}" aria-label="Export GPX"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-2"/></svg></button>
-          <button class="iconbtn del" data-del="${t.id}" aria-label="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></button>
-        </div>`;}).join('');
+      const row=(t,sub)=>{const on=visible.has(t.id);return `<div class="route">
+        <div class="eye ${on?'on':''}" data-eye="${t.id}" style="${on?`background:${t.color}22;`:''}">${swatch(t.color)}<span class="check">✓</span></div>
+        <div class="body" data-focus="${t.id}"><div class="nm">${escapeHtml(t.name)}</div><div class="meta">${sub}</div></div>
+        <button class="iconbtn" data-export="${t.id}" aria-label="Save as file">${SAVE}</button>
+        <button class="iconbtn del" data-del="${t.id}" aria-label="Delete">${TRASH}</button>
+      </div>`;};
+      let html='';
+      if(outlines.length){html+=`<div class="grouplabel">Area outlines</div>`+outlines.map(t=>row(t,`outline · ${t.source}`)).join('');}
+      if(drives.length){html+=`<div class="grouplabel">Routes driven</div>`+drives.map(t=>{const d=fmtDist(t.distM);return row(t,`${dateLabel(t.start)} · ${d.n} ${d.u}`);}).join('');}
+      el.innerHTML=html;
     }
-    renderAreaBox();
     document.getElementById('scrim').classList.add('show');
     document.getElementById('sheet').classList.add('show');
-  }
-  function renderAreaBox(){
-    const el=document.getElementById('areaBox');if(!el)return;
-    const ico=`<div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l6-3 6 3 6-3v13l-6 3-6-3-6 3z"/><path d="M9 4v13M15 7v13"/></svg></div>`;
-    if(!area){
-      el.innerHTML=`<div class="top">${ico}<div class="info"><div class="ttl">Area to cover</div><div class="det">Load the boundary file from the boss</div></div></div><div class="acts"><button class="primary2" data-act="load">Load area file</button></div>`;
-      return;
-    }
-    const s=areaStats();const pct=Math.round(s.pct*100);
-    el.innerHTML=`<div class="top">${ico}<div class="info"><div class="ttl">${escapeHtml(area.name||'Area')}</div><div class="det">${area.roads.length} roads · ${pct}% covered</div></div></div>
-      <div class="bar"><i style="width:${pct}%"></i></div>
-      <div class="acts"><button data-act="load">Change</button><button data-act="reset">Reset</button><button class="danger2" data-act="remove">Remove</button></div>`;
   }
   function closeSheet(){document.getElementById('scrim').classList.remove('show');document.getElementById('sheet').classList.remove('show');}
 
@@ -704,9 +622,9 @@
     const eye=e.target.closest('[data-eye]');
     if(eye){const id=eye.dataset.eye;if(visible.has(id))visible.delete(id);else visible.add(id);renderOverlay();openSheet();return;}
     const exp=e.target.closest('[data-export]');
-    if(exp){const t=tracks.find(x=>x.id===exp.dataset.export);if(t)exportTrack(t);return;}
+    if(exp){const t=tracks.find(x=>x.id===exp.dataset.export);if(t)await exportTrack(t);return;}
     const del=e.target.closest('[data-del]');
-    if(del){const ok=await modal({title:'Delete track?',message:'This can’t be undone.',ok:'Delete',danger:true});if(ok){visible.delete(del.dataset.del);await Store.remove(del.dataset.del);await refresh();renderOverlay();openSheet();}return;}
+    if(del){const ok=await modal({title:'Delete this?',message:'Save it to a file first if you want to keep it. This can’t be undone.',ok:'Delete',danger:true});if(ok){visible.delete(del.dataset.del);await Store.remove(del.dataset.del);await refresh();renderOverlay();openSheet();}return;}
     const f=e.target.closest('[data-focus]');
     if(f){const t=tracks.find(x=>x.id===f.dataset.focus);if(t)focusTrack(t);}
   });
@@ -737,7 +655,7 @@
   function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove('show'),3200);}
   function setLocate(on){following=on;document.getElementById('locateBtn').classList.toggle('on',on);}
   function recenter(){setLocate(true);if(lastFix)map.setView([lastFix.lat,lastFix.lng],Math.max(map.getZoom(),15),{animate:true});else if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>map.setView([p.coords.latitude,p.coords.longitude],15),()=>{});}
-  async function refresh(){const all=(await Store.list());tracks=all.filter(t=>!t.active&&!t.area).sort((a,b)=>b.start-a.start);document.getElementById('tracksCount').textContent=tracks.length;area=all.find(t=>t.area)||null;if(area)buildIndex();else gridIndex=null;renderArea();updateAreaProg();}
+  async function refresh(){tracks=(await Store.list()).filter(t=>!t.active).sort((a,b)=>b.start-a.start);document.getElementById('tracksCount').textContent=tracks.length;}
   function syncPanelHeight(){document.documentElement.style.setProperty('--panel-h',document.getElementById('panel').offsetHeight+'px');}
 
   /* ---------- Wiring ---------- */
@@ -749,20 +667,15 @@
   document.getElementById('zoomOut').addEventListener('click',()=>map.zoomOut());
   document.getElementById('downloadBtn').addEventListener('click',downloadArea);
   document.getElementById('importBtn').addEventListener('click',()=>document.getElementById('fileInput').click());
+  document.getElementById('clearBtn').addEventListener('click',clearAll);
   document.getElementById('fileInput').addEventListener('change',(e)=>{importFiles(e.target.files);e.target.value='';});
-  document.getElementById('areaInput').addEventListener('change',(e)=>{const f=e.target.files&&e.target.files[0];if(f)loadAreaFile(f);e.target.value='';});
-  document.getElementById('areaBox').addEventListener('click',async(e)=>{
-    const b=e.target.closest('[data-act]');if(!b)return;const act=b.dataset.act;
-    if(act==='load'){document.getElementById('areaInput').click();}
-    else if(act==='reset'){const ok=await modal({title:'Reset progress?',message:'All roads go back to yellow (not driven yet). The area itself stays loaded.',ok:'Reset',danger:true});if(ok){await resetArea();renderAreaBox();}}
-    else if(act==='remove'){const ok=await modal({title:'Remove area?',message:'This clears the area and its progress from the device.',ok:'Remove',danger:true});if(ok){await removeArea();renderAreaBox();}}
-  });
   document.getElementById('unitToggle').addEventListener('click',()=>{units=units==='mi'?'km':'mi';document.getElementById('unitToggle').textContent=units;document.getElementById('speedUnit').textContent=units==='mi'?'mph':'km/h';renderStats();if(document.getElementById('sheet').classList.contains('show'))openSheet();});
   map.on('dragstart',()=>{following=false;document.getElementById('locateBtn').classList.remove('on');});
 
   /* ---------- Boot ---------- */
   window.addEventListener('resize',syncPanelHeight);syncPanelHeight();renderStats();
   await refresh();
+  tracks.forEach(t=>visible.add(t.id));renderOverlay();
   await recoverIfNeeded();
   if(Store.mode==='memory')toast('Heads up: saving needs the installed app — see the README');
   if('geolocation' in navigator){navigator.geolocation.getCurrentPosition(

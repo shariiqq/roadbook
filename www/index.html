@@ -48,10 +48,31 @@
   @keyframes spin{to{transform:rotate(360deg);}}
 
   .panel{position:absolute;left:0;right:0;bottom:0;z-index:650;
-    background:linear-gradient(180deg,var(--bg-panel) 0%, #15120f 100%);
+    background:rgba(21,18,15,.58);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
     border-top:1px solid var(--hair);border-radius:22px 22px 0 0;
-    padding:14px 16px calc(14px + var(--safe-b));box-shadow:0 -12px 40px rgba(0,0,0,.45);color:var(--ink);}
-  .grip{width:42px;height:5px;border-radius:99px;background:var(--hair);margin:0 auto 12px;}
+    padding:8px 16px calc(14px + var(--safe-b));box-shadow:0 -12px 40px rgba(0,0,0,.40);color:var(--ink);
+    transition:transform .28s cubic-bezier(.4,0,.2,1);}
+  .panel.collapsed{transform:translateY(calc(100% - 34px));}
+  .grip-hit{display:flex;justify-content:center;align-items:center;padding:8px 0 8px;margin:0 0 2px;cursor:pointer;}
+  .grip{width:46px;height:5px;border-radius:99px;background:var(--hair);}
+  .sheet header .grip{margin:0 auto 12px;}
+
+  /* Floating live readout — top-left of the map, only while recording */
+  .livebox{position:absolute;top:calc(var(--safe-t) + 64px);left:12px;z-index:600;
+    display:none;flex-direction:column;min-width:92px;
+    background:rgba(26,23,20,.60);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+    border:1px solid var(--hair);border-radius:16px;padding:10px 14px;color:var(--ink);
+    box-shadow:0 6px 22px rgba(0,0,0,.35);}
+  .livebox.show{display:flex;}
+  .livebox .lb-spd{font-size:34px;font-weight:700;line-height:1;color:var(--accent);font-variant-numeric:tabular-nums;}
+  .livebox .lb-spd .u{font-size:13px;color:var(--muted);font-weight:600;margin-left:3px;}
+  .livebox .lb-sub{font-size:12px;color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums;margin-top:4px;letter-spacing:.02em;}
+
+  /* Slim distance line in the bar */
+  .distline{display:flex;align-items:baseline;justify-content:space-between;margin:0 4px 12px;}
+  .distline .dlab{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:700;}
+  .distline .dval{font-variant-numeric:tabular-nums;font-weight:700;font-size:22px;line-height:1;}
+  .distline .u{font-size:12px;color:var(--muted);font-weight:600;margin-left:2px;}
 
   .stats{display:grid;grid-template-columns:1fr 1.25fr 1fr;gap:10px;margin-bottom:14px;align-items:stretch;}
   .stat{background:var(--bg-panel-2);border:1px solid var(--hair);border-radius:14px;padding:11px 13px;min-width:0;text-align:center;}
@@ -176,24 +197,16 @@
   <button class="fbtn" id="zoomOut" aria-label="Zoom out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
 </div>
 
+<div class="livebox" id="livebox" aria-hidden="true">
+  <div class="lb-spd" id="speedVal">0<span class="u" id="speedUnit">mph</span></div>
+  <div class="lb-sub"><span id="timeVal">0:00</span> &middot; <span id="maxSpeed">max 0</span></div>
+</div>
+
 <div class="panel" id="panel">
-  <div class="grip"></div>
-  <div class="stats">
-    <div class="stat">
-      <div class="lab">Distance <span class="unit-toggle" id="unitToggle">mi</span></div>
-      <div class="val big" id="distVal">0.00<span class="u" id="distUnit">mi</span></div>
-      <div class="sub" id="distSub"></div>
-    </div>
-    <div class="stat speed">
-      <div class="lab">Speed</div>
-      <div class="val big" id="speedVal">0<span class="u" id="speedUnit">mph</span></div>
-      <div class="sub" id="maxSpeed">max 0</div>
-    </div>
-    <div class="stat">
-      <div class="lab">Time</div>
-      <div class="val big" id="timeVal">0:00</div>
-      <div class="sub" id="timeSub"></div>
-    </div>
+  <div class="grip-hit" id="panelGrip" role="button" aria-label="Hide or show the bar"><div class="grip"></div></div>
+  <div class="distline">
+    <span class="dlab">Distance <span class="unit-toggle" id="unitToggle">mi</span></span>
+    <span class="dval" id="distVal">0.00<span class="u" id="distUnit">mi</span></span>
   </div>
   <div class="controls">
     <button class="primary" id="recBtn"><span class="dot"></span><span id="recLabel">Start drive</span></button>
@@ -367,12 +380,15 @@
     if(gpsMarker)gpsMarker.setIcon(gpsIconRec); setLocate(true); requestWake();
     document.getElementById('recBtn').classList.add('rec');
     document.getElementById('recLabel').textContent='Stop & save';
+    document.getElementById('livebox').classList.add('show');
+    document.getElementById('panel').classList.remove('collapsed');
     clearInterval(timerInt);timerInt=setInterval(renderStats,1000);renderStats();
     clearInterval(autosaveInt);autosaveInt=setInterval(autosaveActive,60000);
     toast('Recording — keep the screen on while driving');
   }
   async function stopRecording(){
     recording=false;await stopWatch();clearInterval(timerInt);clearInterval(autosaveInt);releaseWake();
+    document.getElementById('livebox').classList.remove('show');
     if(gpsMarker)gpsMarker.setIcon(gpsIcon);
     document.getElementById('recBtn').classList.remove('rec');
     document.getElementById('recLabel').textContent='Start drive';
@@ -536,16 +552,28 @@
 <trk><name>${escapeHtml(t.name)}</name><trkseg>${seg}</trkseg></trk>
 </gpx>`;
   }
+  // Auto-save location on the tablet (no folder picking, no share sheet):
+  //   Internal storage > Android > data > com.roadbook.app > files > Roadbook
+  const SAVE_DIR='Roadbook';
   async function saveFile(filename,text,mime){
     if(NATIVE&&window.Capacitor.Plugins.Filesystem){
+      const { Filesystem }=window.Capacitor.Plugins;
       try{
-        const { Filesystem }=window.Capacitor.Plugins;
-        const res=await Filesystem.writeFile({path:filename,data:text,directory:'CACHE',encoding:'utf8'});
-        const uri=(res&&res.uri)||'';
-        if(window.Capacitor.Plugins.Share){await window.Capacitor.Plugins.Share.share({title:filename,url:uri});}
-        else toast('Saved: '+filename);
+        // Make sure the Roadbook folder exists (ignore "already there")
+        try{ await Filesystem.mkdir({path:SAVE_DIR,directory:'EXTERNAL',recursive:true}); }catch(e){}
+        await Filesystem.writeFile({path:SAVE_DIR+'/'+filename,data:text,directory:'EXTERNAL',encoding:'utf8',recursive:true});
+        toast('Saved to the Roadbook folder');
         return;
-      }catch(e){toast('Could not save the file');return;}
+      }catch(e){
+        // Safety net so a save is never lost: fall back to the old share sheet
+        try{
+          const res=await Filesystem.writeFile({path:filename,data:text,directory:'CACHE',encoding:'utf8'});
+          const uri=(res&&res.uri)||'';
+          if(window.Capacitor.Plugins.Share){await window.Capacitor.Plugins.Share.share({title:filename,url:uri});}
+          else toast('Saved: '+filename);
+        }catch(e2){toast('Could not save the file');}
+        return;
+      }
     }
     const blob=new Blob([text],{type:mime||'application/octet-stream'});
     const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);
@@ -660,6 +688,7 @@
 
   /* ---------- Wiring ---------- */
   document.getElementById('recBtn').addEventListener('click',()=>recording?stopRecording():startRecording());
+  document.getElementById('panelGrip').addEventListener('click',()=>document.getElementById('panel').classList.toggle('collapsed'));
   document.getElementById('tracksBtn').addEventListener('click',openSheet);
   document.getElementById('scrim').addEventListener('click',closeSheet);
   document.getElementById('locateBtn').addEventListener('click',recenter);
@@ -669,7 +698,7 @@
   document.getElementById('importBtn').addEventListener('click',()=>document.getElementById('fileInput').click());
   document.getElementById('clearBtn').addEventListener('click',clearAll);
   document.getElementById('fileInput').addEventListener('change',(e)=>{importFiles(e.target.files);e.target.value='';});
-  document.getElementById('unitToggle').addEventListener('click',()=>{units=units==='mi'?'km':'mi';document.getElementById('unitToggle').textContent=units;document.getElementById('speedUnit').textContent=units==='mi'?'mph':'km/h';renderStats();if(document.getElementById('sheet').classList.contains('show'))openSheet();});
+  document.getElementById('unitToggle').addEventListener('click',()=>{units=units==='mi'?'km':'mi';document.getElementById('unitToggle').textContent=units;const _su=document.getElementById('speedUnit');if(_su)_su.textContent=units==='mi'?'mph':'km/h';renderStats();if(document.getElementById('sheet').classList.contains('show'))openSheet();});
   map.on('dragstart',()=>{following=false;document.getElementById('locateBtn').classList.remove('on');});
 
   /* ---------- Boot ---------- */

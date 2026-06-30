@@ -1,17 +1,13 @@
 /* Roadbook service worker — offline app shell + map tile caching */
-const SHELL = 'roadbook-shell-v1';
-const TILES = 'roadbook-tiles-v1';
+const SHELL = 'roadbook-shell-v2';
+const TILES = 'roadbook-tiles-v2';
 
 const SHELL_ASSETS = [
   './',
   './index.html',
   './manifest.webmanifest',
-  './vendor/leaflet/leaflet.js',
-  './vendor/leaflet/leaflet.css',
-  './vendor/leaflet/images/marker-icon.png',
-  './vendor/leaflet/images/marker-shadow.png',
-  './vendor/leaflet/images/layers.png',
-  './vendor/leaflet/images/layers-2x.png',
+  './vendor/maplibre/maplibre-gl.js',
+  './vendor/maplibre/maplibre-gl.css',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-180.png'

@@ -74,6 +74,16 @@
   .distline .dval{font-variant-numeric:tabular-nums;font-weight:700;font-size:22px;line-height:1;}
   .distline .u{font-size:12px;color:var(--muted);font-weight:600;margin-left:2px;}
 
+  /* Zoom scale readout (e.g. 200 ft) */
+  .leaflet-top.leaflet-right{top:calc(var(--safe-t) + 8px);right:8px;}
+  .leaflet-control-scale{margin:0!important;}
+  .leaflet-control-scale-line{
+    background:rgba(26,23,20,.60)!important;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+    border:1px solid var(--hair)!important;border-top:none!important;
+    color:var(--ink)!important;font-weight:700!important;font-size:11px!important;
+    padding:2px 7px!important;line-height:1.5!important;box-shadow:0 4px 14px rgba(0,0,0,.30);}
+  .leaflet-control-scale-line:not(:first-child){border-top:1px solid var(--hair)!important;border-bottom:none!important;margin-top:-1px;}
+
   .stats{display:grid;grid-template-columns:1fr 1.25fr 1fr;gap:10px;margin-bottom:14px;align-items:stretch;}
   .stat{background:var(--bg-panel-2);border:1px solid var(--hair);border-radius:14px;padding:11px 13px;min-width:0;text-align:center;}
   .stat.speed{background:linear-gradient(180deg,#2b241c,#221d17);border-color:rgba(242,162,74,.22);}
@@ -287,6 +297,7 @@
   /* ---------- Map (default to the UK until GPS locates) ---------- */
   const map=L.map('map',{zoomControl:false,attributionControl:true}).setView([54.2,-2.6],6);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+  L.control.scale({imperial:true,metric:true,position:'topright',maxWidth:130,updateWhenIdle:false}).addTo(map);
 
   const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   const PALETTE=['#2DD4BF','#5FB87A','#C78BE6','#5B8DEF','#E0A93B','#9B8CFF','#54C7A8','#7FD1F2','#EE8B5B','#F2A24A'];
@@ -394,15 +405,18 @@
     document.getElementById('recLabel').textContent='Start drive';
     if(points.length<2){toast('Drive too short to save');try{await Store.remove('active-recording');}catch(e){}resetLive();return;}
     const def=`Drive · ${new Date(startT).toLocaleDateString('en-GB',{day:'numeric',month:'short'})}`;
-    const name=await modal({title:'Save this drive',message:'Name it so it’s easy to find later.',input:true,value:def,ok:'Save'});
+    const name=await modal({title:'Save this drive',message:'Name it, then it saves straight to your Documents › Roadbook folder.',input:true,value:def,ok:'Save'});
     if(name===null)return;
     const t={id:'r'+Date.now()+Math.random().toString(36).slice(2,5),
       name:(name||def).trim()||def,source:'recorded',color:colorForDay(startT),
       start:startT,end:Date.now(),distM:Math.round(distM),durMs:Date.now()-startT,
       pts:points.map(p=>[+p.lat.toFixed(6),+p.lng.toFixed(6)]),
       times:points.map(p=>p.t)};
-    try{await Store.save(t);await Store.remove('active-recording');toast('Drive saved');}catch(e){toast('Could not save — storage unavailable');}
-    await refresh();visible.add(t.id);renderOverlay();resetLive();
+    // Save straight to the folder as a .gpx file — nothing is kept in the app
+    const fname=(name||def).replace(/[^\w \-]+/g,'_').trim()+'.gpx';
+    await saveFile(fname,trackToGpx(t),'application/gpx+xml');
+    try{await Store.remove('active-recording');}catch(e){}
+    resetLive();
   }
   /* autosave the in-progress drive so a crash / app-kill never loses the day */
   function activeRecord(){
@@ -552,28 +566,35 @@
 <trk><name>${escapeHtml(t.name)}</name><trkseg>${seg}</trkseg></trk>
 </gpx>`;
   }
-  // Auto-save location on the tablet (no folder picking, no share sheet):
-  //   Internal storage > Android > data > com.roadbook.app > files > Roadbook
+  // Saved drives go to a folder you can open in the tablet's file explorer:
+  //   Internal storage > Documents > Roadbook
+  // (needs one-time "all files access" on Android 11+, requested on first launch)
   const SAVE_DIR='Roadbook';
   async function saveFile(filename,text,mime){
     if(NATIVE&&window.Capacitor.Plugins.Filesystem){
       const { Filesystem }=window.Capacitor.Plugins;
+      // 1) Visible Documents/Roadbook folder (what we want)
       try{
-        // Make sure the Roadbook folder exists (ignore "already there")
+        try{ await Filesystem.mkdir({path:SAVE_DIR,directory:'DOCUMENTS',recursive:true}); }catch(e){}
+        await Filesystem.writeFile({path:SAVE_DIR+'/'+filename,data:text,directory:'DOCUMENTS',encoding:'utf8',recursive:true});
+        toast('Saved to Documents / Roadbook');
+        return;
+      }catch(e){}
+      // 2) Fallback: app storage (always works, but hidden from the file explorer)
+      try{
         try{ await Filesystem.mkdir({path:SAVE_DIR,directory:'EXTERNAL',recursive:true}); }catch(e){}
         await Filesystem.writeFile({path:SAVE_DIR+'/'+filename,data:text,directory:'EXTERNAL',encoding:'utf8',recursive:true});
-        toast('Saved to the Roadbook folder');
+        toast('Saved — enable file access in Settings to see it in Documents');
         return;
-      }catch(e){
-        // Safety net so a save is never lost: fall back to the old share sheet
-        try{
-          const res=await Filesystem.writeFile({path:filename,data:text,directory:'CACHE',encoding:'utf8'});
-          const uri=(res&&res.uri)||'';
-          if(window.Capacitor.Plugins.Share){await window.Capacitor.Plugins.Share.share({title:filename,url:uri});}
-          else toast('Saved: '+filename);
-        }catch(e2){toast('Could not save the file');}
-        return;
-      }
+      }catch(e){}
+      // 3) Last resort so a save is never lost: the share sheet
+      try{
+        const res=await Filesystem.writeFile({path:filename,data:text,directory:'CACHE',encoding:'utf8'});
+        const uri=(res&&res.uri)||'';
+        if(window.Capacitor.Plugins.Share){await window.Capacitor.Plugins.Share.share({title:filename,url:uri});}
+        else toast('Saved: '+filename);
+      }catch(e2){toast('Could not save the file');}
+      return;
     }
     const blob=new Blob([text],{type:mime||'application/octet-stream'});
     const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),2000);

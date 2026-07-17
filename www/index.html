@@ -270,6 +270,7 @@
     await loadCss('https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css');
     await loadScript('https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.js');
   }
+  try { await loadScript('vendor/pmtiles/pmtiles.js'); await loadScript('vendor/pmtiles/pm-style.js'); } catch(e){}
 
   /* ---------- Register service worker (offline) — skipped in non-https preview ---------- */
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
@@ -295,10 +296,64 @@
     let mem=[];return {mode:'memory',async list(){return mem.slice();},async save(t){mem=mem.filter(x=>x.id!==t.id);mem.push(t);},async remove(id){mem=mem.filter(x=>x.id!==id);}};
   })();
 
-  /* ---------- Map (vector engine; online source for now, offline file in Phase 2) ---------- */
+  /* ---------- Map (vector engine — offline England & Wales file when present, else online) ---------- */
   const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   const MAP_STYLE='https://tiles.openfreemap.org/styles/liberty';
-  const map=new maplibregl.Map({container:'map',style:MAP_STYLE,center:[-2.6,54.2],zoom:5,attributionControl:true,dragRotate:true,pitchWithRotate:false,maxPitch:0,renderWorldCopies:false});
+  const MAP_FILE='england-wales.pmtiles';
+  const MAP_URL='https://github.com/shariiqq/roadbook/releases/download/map-v1/england-wales.pmtiles';
+  const PM_KEY='roadbook';
+
+  // Reads byte ranges straight out of the downloaded file in device storage (OPFS) — no full load into memory
+  function OpfsSource(key,file){this._key=key;this._file=file;this._f=null;}
+  OpfsSource.prototype.getKey=function(){return this._key;};
+  OpfsSource.prototype._get=async function(){if(this._f)return this._f;const root=await navigator.storage.getDirectory();const fh=await root.getFileHandle(this._file);this._f=await fh.getFile();return this._f;};
+  OpfsSource.prototype.getBytes=async function(offset,length){const f=await this._get();const buf=await f.slice(offset,offset+length).arrayBuffer();return {data:buf};};
+
+  function hasOPFS(){return !!(navigator.storage&&navigator.storage.getDirectory);}
+  async function offlineMapReady(){
+    if(!hasOPFS())return false;
+    try{ if(!localStorage.getItem('mapReady'))return false; const root=await navigator.storage.getDirectory(); const fh=await root.getFileHandle(MAP_FILE); const f=await fh.getFile(); return f.size>1000000; }catch(e){ return false; }
+  }
+  async function downloadMapToOpfs(onProgress){
+    const root=await navigator.storage.getDirectory();
+    const fh=await root.getFileHandle(MAP_FILE,{create:true});
+    const w=await fh.createWritable();
+    try{
+      const res=await fetch(MAP_URL);
+      if(!res.ok)throw new Error('HTTP '+res.status);
+      const total=+(res.headers.get('content-length')||0);
+      const reader=res.body.getReader();let got=0;
+      while(true){const {done,value}=await reader.read();if(done)break;await w.write(value);got+=value.length;if(onProgress)onProgress(got,total);}
+      await w.close();
+    }catch(e){ try{await w.abort();}catch(_){ } localStorage.removeItem('mapReady'); throw e; }
+    localStorage.setItem('mapReady',Date.now()+'');
+  }
+  async function offerOfflineDownload(){
+    if(OFFLINE||!NATIVE||!hasOPFS())return;      // already offline, or not the installed app, or no OPFS
+    if(await offlineMapReady()){ toast('Offline map ready — reopen the app to use it'); return; }
+    const go=await modal({title:'Offline map',message:'Download the England & Wales map so it works with no signal? About 1.1 GB — best on Wi‑Fi, one time only.',ok:'Download'});
+    if(!go)return;
+    try{
+      let last=-1;
+      await downloadMapToOpfs((got,total)=>{ const pct=total?Math.round(got/total*100):null; const v=(pct!=null)?pct:Math.round(got/1048576); if(v!==last){last=v; toast('Downloading offline map… '+(pct!=null?pct+'%':v+' MB')); } });
+      toast('Offline map saved — reloading');
+      setTimeout(()=>location.reload(),1400);
+    }catch(e){ toast('Download failed — check Wi‑Fi and try again'); }
+  }
+
+  // Register the pmtiles protocol once, then choose the map style
+  let OFFLINE=false;
+  try{ const _p=new pmtiles.Protocol(); maplibregl.addProtocol('pmtiles',_p.tile); window._pmProto=_p; }catch(e){}
+  async function chooseStyle(){
+    if(window.pmtiles&&window.PM_LAYERS&&await offlineMapReady()){
+      try{ window._pmProto.add(new pmtiles.PMTiles(new OpfsSource(PM_KEY,MAP_FILE))); OFFLINE=true;
+        return {version:8,sources:{protomaps:{type:'vector',url:'pmtiles://'+PM_KEY,attribution:'© OpenStreetMap'}},layers:window.PM_LAYERS};
+      }catch(e){}
+    }
+    return MAP_STYLE;
+  }
+  const _style=await chooseStyle();
+  const map=new maplibregl.Map({container:'map',style:_style,center:[-2.6,54.2],zoom:5,attributionControl:true,dragRotate:true,pitchWithRotate:false,maxPitch:0,renderWorldCopies:false});
   map.addControl(new maplibregl.ScaleControl({unit:'imperial'}),'top-right');
   map.addControl(new maplibregl.ScaleControl({unit:'metric'}),'top-right');
 
@@ -336,7 +391,7 @@
   let recording=false, watchId=null, points=[], distM=0, startT=0, timerInt=null;
   let following=true, wakeLock=null, lastFix=null, maxSpd=0;
   const NATIVE=!!(window.Capacitor&&window.Capacitor.isNativePlatform&&window.Capacitor.isNativePlatform());
-  let bgId=null, autosaveInt=null;
+  let bgId=null, autosaveInt=null, idleWatchId=null;
   let coverRedrawInt=null;
   let units='mi';            // default to miles/mph (UK road signs use mph)
   let tracks=[];             // all saved/imported tracks in memory
@@ -371,17 +426,27 @@
     setGpsRec(recording);
     if(!gpsMarker){onMapReady(()=>{if(!gpsMarker)gpsMarker=new maplibregl.Marker({element:gpsEl}).setLngLat([p.lng,p.lat]).addTo(map);});}
     else gpsMarker.setLngLat([p.lng,p.lat]);
-    // Heading-up: rotate map to direction of travel (only when actually moving)
-    if(headingUp&&c.heading!=null&&!isNaN(c.heading)&&(c.speed==null||c.speed>0.8)){onMapReady(()=>map.setBearing(c.heading));}
+    // Direction of travel (only trust it when actually moving)
+    const moving=(c.heading!=null&&!isNaN(c.heading)&&(c.speed==null||c.speed>0.8));
+    const wantBearing=(headingUp&&moving)?c.heading:null;
     if(recording){
       const prev=points[points.length-1];
       if(prev)distM+=haversine(prev,p);
       points.push(p);
       liveCoords.push([p.lng,p.lat]); setLiveData();
       const s=(p.spd!=null)?p.spd:deriveSpeed(); if(s>maxSpd)maxSpd=s;
-      if(following)onMapReady(()=>map.easeTo({center:[p.lng,p.lat],duration:500}));
       renderStats();
-    }else if(following){onMapReady(()=>map.easeTo({center:[p.lng,p.lat],zoom:Math.max(map.getZoom(),15),duration:500}));}
+    }
+    if(following){
+      onMapReady(()=>{
+        const cam={center:[p.lng,p.lat],duration:500};
+        if(!recording)cam.zoom=Math.max(map.getZoom(),15);
+        if(wantBearing!=null)cam.bearing=wantBearing;
+        map.easeTo(cam);
+      });
+    }else if(wantBearing!=null){
+      onMapReady(()=>map.easeTo({bearing:wantBearing,duration:500}));
+    }
   }
   function handleErr(err){let m='Location unavailable.';if(err.code===1)m='Location is off. Allow location to record drives.';else if(err.code===2)m='No GPS signal right now.';else if(err.code===3)m='Location timed out — retrying.';toast(m);}
   async function startWatch(){
@@ -393,7 +458,7 @@
           (loc,err)=>{
             if(err){ if(err.code==='NOT_AUTHORIZED'){toast('Set location to “Allow all the time” for background recording');} return; }
             if(!loc)return;
-            handleFix({coords:{latitude:loc.latitude,longitude:loc.longitude,accuracy:loc.accuracy,speed:(loc.speed!=null?loc.speed:null)},timestamp:loc.time||Date.now()});
+            handleFix({coords:{latitude:loc.latitude,longitude:loc.longitude,accuracy:loc.accuracy,speed:(loc.speed!=null?loc.speed:null),heading:(loc.bearing!=null?loc.bearing:null)},timestamp:loc.time||Date.now()});
           });
         return true;
       }catch(e){toast('Could not start tracking');return false;}
@@ -405,10 +470,21 @@
     if(NATIVE){try{const { BackgroundGeolocation }=window.Capacitor.Plugins;if(bgId){await BackgroundGeolocation.removeWatcher({id:bgId});bgId=null;}}catch(e){}return;}
     if(watchId!=null){navigator.geolocation.clearWatch(watchId);watchId=null;}
   }
+  // Lightweight watch that runs whenever the app is open and NOT recording,
+  // so the map can follow you (and rotate) without a drive in progress.
+  function startIdleWatch(){
+    if(recording||idleWatchId!=null)return;
+    if(!('geolocation' in navigator))return;
+    idleWatchId=navigator.geolocation.watchPosition(handleFix,()=>{},{enableHighAccuracy:true,maximumAge:1000,timeout:20000});
+  }
+  function stopIdleWatch(){
+    if(idleWatchId!=null){try{navigator.geolocation.clearWatch(idleWatchId);}catch(e){}idleWatchId=null;}
+  }
 
   /* ---------- Recording ---------- */
   async function startRecording(){
     if(!(await startWatch()))return;
+    stopIdleWatch();
     recording=true;points=[];distM=0;maxSpd=0;startT=Date.now();lastFix=null;following=true;
     liveCoords=[]; setLiveData();
     setGpsRec(true); setLocate(true); requestWake();
@@ -422,6 +498,7 @@
   }
   async function stopRecording(){
     recording=false;await stopWatch();clearInterval(timerInt);clearInterval(autosaveInt);releaseWake();
+    startIdleWatch();
     document.getElementById('livebox').classList.remove('show');
     setGpsRec(false);
     document.getElementById('recBtn').classList.remove('rec');
@@ -741,6 +818,9 @@
   if('geolocation' in navigator){navigator.geolocation.getCurrentPosition(
     p=>{lastFix={lat:p.coords.latitude,lng:p.coords.longitude,t:Date.now(),spd:null};onMapReady(()=>{if(!gpsMarker)gpsMarker=new maplibregl.Marker({element:gpsEl}).setLngLat([lastFix.lng,lastFix.lat]).addTo(map);if(following)map.easeTo({center:[lastFix.lng,lastFix.lat],zoom:15});});},
     ()=>{},{enableHighAccuracy:true,timeout:8000});}
+  startIdleWatch();
+  if(OFFLINE){ onMapReady(()=>toast('Offline England & Wales map active')); }
+  else { offerOfflineDownload(); }
 })();
 </script>
 </body>

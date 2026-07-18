@@ -456,7 +456,7 @@
       window._pmArchive=_pm;
       window._pmProto.add(_pm);
       OFFLINE=true; try{localStorage.setItem(OFF_FLAG,'1');}catch(e){}
-      return {version:8,sources:{protomaps:{type:'vector',url:'pmtiles://'+PM_KEY,attribution:'© OpenStreetMap'}},layers:window.PM_LAYERS};
+      return {version:8,glyphs:'fonts/{fontstack}/{range}.pbf',sources:{protomaps:{type:'vector',url:'pmtiles://'+PM_KEY,attribution:'© OpenStreetMap'}},layers:window.PM_LAYERS};
     }catch(e){ lastMapError='Offline map failed to open: '+((e&&e.message)||e); return MAP_STYLE; }
   }
 
@@ -959,10 +959,10 @@
     ()=>{},{enableHighAccuracy:true,timeout:8000});}
   startIdleWatch();
   if(OFFLINE){
-    onMapReady(()=>toast('Offline England & Wales map active'));
-    setTimeout(async()=>{ const rep=await archiveReport(); modal({title:'Map file check',message:rep+(mapDiag.mapErr?('\nmap error: '+mapDiag.mapErr):'\nno map errors'),ok:'OK'}); },5000);
+    onMapReady(()=>toast('Offline map active'));
   } else if(await offlineMapReady()){
-    setTimeout(async()=>{
+    if(localStorage.getItem('mapAsked')==='1'){ /* already asked once - stay quiet */ } else setTimeout(async()=>{
+      try{localStorage.setItem('mapAsked','1');}catch(e){}
       const why=offlineBlocked()?'The offline map crashed the app last time, so it is switched off.':(lastMapError||'The offline map is not switched on.');
       const go=await modal({title:'Offline map',message:why+'\n\nTry using it again?',ok:'Try it'});
       if(go){ try{localStorage.setItem(OFF_ON,'1');localStorage.removeItem(OFF_BAD);}catch(e){} location.reload(); }

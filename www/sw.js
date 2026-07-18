@@ -1,6 +1,6 @@
 /* Roadbook service worker — offline app shell + map tile caching */
-const SHELL = 'roadbook-shell-v3';
-const TILES = 'roadbook-tiles-v3';
+const SHELL = 'roadbook-shell-v4';
+const TILES = 'roadbook-tiles-v4';
 
 const SHELL_ASSETS = [
   './',
@@ -10,6 +10,12 @@ const SHELL_ASSETS = [
   './vendor/maplibre/maplibre-gl.css',
   './vendor/pmtiles/pmtiles.js',
   './vendor/pmtiles/pm-style.js',
+  './fonts/Noto Sans Regular/0-255.pbf',
+  './fonts/Noto Sans Regular/256-511.pbf',
+  './fonts/Noto Sans Medium/0-255.pbf',
+  './fonts/Noto Sans Medium/256-511.pbf',
+  './fonts/Noto Sans Italic/0-255.pbf',
+  './fonts/Noto Sans Italic/256-511.pbf',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-180.png'

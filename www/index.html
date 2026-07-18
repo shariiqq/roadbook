@@ -316,9 +316,17 @@
   NativeSource.prototype.getKey=function(){return this._key;};
   NativeSource.prototype.getBytes=async function(offset,length){
     const P=rbFile(); if(!P)throw new Error('native reader unavailable');
-    const r=await P.readSlice({path:this._path,offset:offset,length:length});
-    if(!r||!r.data)throw new Error('empty read');
-    return {data:b64ToBuf(r.data)};
+    // Retry a couple of times - an occasional failed read leaves a blank tile
+    let lastErr=null;
+    for(let attempt=0;attempt<3;attempt++){
+      try{
+        const r=await P.readSlice({path:this._path,offset:offset,length:length});
+        if(r&&r.data)return {data:b64ToBuf(r.data)};
+        lastErr=new Error('empty read');
+      }catch(e){ lastErr=e; }
+      await new Promise(r=>setTimeout(r,60*(attempt+1)));
+    }
+    throw lastErr||new Error('read failed');
   };
 
   function RangeSource(key,url,size){this._key=key;this._url=url;this._size=size;}

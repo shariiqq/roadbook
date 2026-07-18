@@ -308,25 +308,64 @@
   const MAP_DIR='DATA';
   function fsPlugin(){return (window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.Filesystem)||null;}
 
+  function rbFile(){return (window.Capacitor&&window.Capacitor.Plugins&&window.Capacitor.Plugins.RoadbookFile)||null;}
+  function b64ToBuf(b64){const bin=atob(b64);const len=bin.length;const u8=new Uint8Array(len);for(let i=0;i<len;i++)u8[i]=bin.charCodeAt(i);return u8.buffer;}
+
+  // Preferred: read byte ranges straight off disk via our native plugin.
+  function NativeSource(key,path,size){this._key=key;this._path=path;this._size=size;}
+  NativeSource.prototype.getKey=function(){return this._key;};
+  NativeSource.prototype.getBytes=async function(offset,length){
+    const P=rbFile(); if(!P)throw new Error('native reader unavailable');
+    const r=await P.readSlice({path:this._path,offset:offset,length:length});
+    if(!r||!r.data)throw new Error('empty read');
+    return {data:b64ToBuf(r.data)};
+  };
+
   function RangeSource(key,url,size){this._key=key;this._url=url;this._size=size;}
   RangeSource.prototype.getKey=function(){return this._key;};
-  RangeSource.prototype.getBytes=async function(offset,length){
-    const end=offset+length-1;
-    const res=await fetch(this._url,{headers:{Range:'bytes='+offset+'-'+end}});
-    if(res.status===206){return {data:await res.arrayBuffer()};}
-    // Never buffer the whole 1.1 GB file — that would hang the tablet.
-    if(res.status===200){ throw new Error('NORANGE'); }
-    throw new Error('Range request failed: HTTP '+res.status);
+  RangeSource.prototype.getBytes=function(offset,length){
+    const url=this._url, end=offset+length-1;
+    return new Promise((resolve,reject)=>{
+      const xhr=new XMLHttpRequest();
+      xhr.open('GET',url,true);
+      try{ xhr.setRequestHeader('Range','bytes='+offset+'-'+end); }catch(e){}
+      xhr.responseType='arraybuffer';
+      xhr.onreadystatechange=()=>{
+        // Bail out at the header stage if Range was ignored, so the whole file
+        // is never pulled into memory.
+        if(xhr.readyState===2 && xhr.status===200){ try{xhr.abort();}catch(e){} reject(new Error('NORANGE')); }
+      };
+      xhr.onload=()=>{ if(xhr.status===206||xhr.status===200) resolve({data:xhr.response}); else reject(new Error('HTTP '+xhr.status)); };
+      xhr.onerror=()=>reject(new Error('read failed'));
+      xhr.send();
+    });
   };
 
   // Startup self-test: can we actually read a small slice of the map file?
-  async function testRange(url){
-    try{
-      const res=await fetch(url,{headers:{Range:'bytes=0-15'}});
-      if(res.status===206){ const b=await res.arrayBuffer(); return {ok:true,detail:'206, '+b.byteLength+' bytes'}; }
-      if(res.status===200) return {ok:false,detail:'server ignored Range (returned 200 = whole file)'};
-      return {ok:false,detail:'HTTP '+res.status};
-    }catch(e){ return {ok:false,detail:'fetch failed: '+((e&&e.message)||e)}; }
+  // Crash-safe probe: uses XHR so we can read the status the moment the headers
+  // arrive and abort BEFORE any body is buffered. fetch() would let the WebView
+  // start swallowing the whole 1.1 GB file if Range is ignored, which kills the app.
+  function testRange(url){
+    return new Promise(resolve=>{
+      let done=false;
+      const finish=r=>{ if(!done){ done=true; try{xhr.abort();}catch(e){} resolve(r); } };
+      const xhr=new XMLHttpRequest();
+      try{ xhr.open('GET',url,true); }catch(e){ return resolve({ok:false,detail:'cannot open file url'}); }
+      try{ xhr.setRequestHeader('Range','bytes=0-15'); }catch(e){}
+      xhr.onreadystatechange=()=>{
+        if(xhr.readyState===2){ // headers received, no body read yet
+          const st=xhr.status;
+          if(st===206) finish({ok:true,detail:'206 partial - ranges work'});
+          else if(st===200) finish({ok:false,detail:'Range ignored (200 = whole file). Reading in pieces is not supported here.'});
+          else finish({ok:false,detail:'HTTP '+st});
+        }
+      };
+      xhr.onerror=()=>finish({ok:false,detail:'request failed'});
+      xhr.ontimeout=()=>finish({ok:false,detail:'timed out'});
+      xhr.timeout=8000;
+      setTimeout(()=>finish({ok:false,detail:'no response in 8s'}),8500);
+      try{ xhr.send(); }catch(e){ finish({ok:false,detail:'send failed'}); }
+    });
   }
 
   async function mapFileInfo(){
@@ -362,6 +401,7 @@
     try{
       let last=-1;
       await downloadMapNative((got,total)=>{ const pct=total?Math.round(got/total*100):null; const v=(pct!=null)?pct:Math.round(got/1048576); if(v!==last){last=v; toast('Downloading offline map\u2026 '+(pct!=null?pct+'%':v+' MB')); } });
+      try{localStorage.setItem(OFF_ON,'1');localStorage.removeItem(OFF_BAD);}catch(e){}
       toast('Offline map saved — reloading');
       setTimeout(()=>location.reload(),1400);
     }catch(e){
@@ -381,8 +421,17 @@
   let OFFLINE=false, lastMapError='';
   const mapDiag={file:'-',url:'-',range:'-',mapErr:''};
   try{ const _p=new pmtiles.Protocol(); maplibregl.addProtocol('pmtiles',_p.tile); window._pmProto=_p; }catch(e){}
+  // Crash guard: flag is set just before trying the offline map and cleared once
+  // the map actually loads. If we boot and the flag is still set, the last attempt
+  // killed the app - so stay on the online map instead of crashing again.
+  const OFF_FLAG='offlineTry', OFF_BAD='offlineBad', OFF_ON='offlineOn';
+  try{ if(localStorage.getItem(OFF_FLAG)==='1'){ localStorage.setItem(OFF_BAD,'1'); localStorage.removeItem(OFF_FLAG); } }catch(e){}
+  function offlineBlocked(){ try{return localStorage.getItem(OFF_BAD)==='1';}catch(e){return false;} }
+
   async function chooseStyle(){
     if(!window.pmtiles||!window.PM_LAYERS)return MAP_STYLE;
+    if(offlineBlocked()){ lastMapError='Offline map turned off - it crashed the app last time.'; return MAP_STYLE; }
+    try{ if(localStorage.getItem(OFF_ON)!=='1') return MAP_STYLE; }catch(e){ return MAP_STYLE; }
     try{
       const info=await mapFileInfo();
       if(!info)return MAP_STYLE;
@@ -392,10 +441,54 @@
       const rt=await testRange(src);
       mapDiag.range=rt.detail;
       if(!rt.ok){ lastMapError='Cannot read the map file in pieces — '+rt.detail; return MAP_STYLE; }
-      window._pmProto.add(new pmtiles.PMTiles(new RangeSource(PM_KEY,src,info.size)));
-      OFFLINE=true;
+      let _srcObj;
+      if(rbFile()){
+        const t=await (async()=>{ try{ const r=await rbFile().readSlice({path:info.uri,offset:0,length:16}); return (r&&r.data)?{ok:true,detail:'native read ok'}:{ok:false,detail:'native read empty'}; }catch(e){ return {ok:false,detail:'native: '+((e&&e.message)||e)}; } })();
+        mapDiag.range=t.detail;
+        if(t.ok){ _srcObj=new NativeSource(PM_KEY,info.uri,info.size); }
+      }
+      if(!_srcObj){
+        const rt=await testRange(src); mapDiag.range=(mapDiag.range&&mapDiag.range!=='-'?mapDiag.range+' | ':'')+rt.detail;
+        if(!rt.ok){ lastMapError='Cannot read the map file in pieces - '+mapDiag.range; return MAP_STYLE; }
+        _srcObj=new RangeSource(PM_KEY,src,info.size);
+      }
+      const _pm=new pmtiles.PMTiles(_srcObj);
+      window._pmArchive=_pm;
+      window._pmProto.add(_pm);
+      OFFLINE=true; try{localStorage.setItem(OFF_FLAG,'1');}catch(e){}
       return {version:8,sources:{protomaps:{type:'vector',url:'pmtiles://'+PM_KEY,attribution:'© OpenStreetMap'}},layers:window.PM_LAYERS};
     }catch(e){ lastMapError='Offline map failed to open: '+((e&&e.message)||e); return MAP_STYLE; }
+  }
+
+  // Deep check: what's actually inside the downloaded map file?
+  async function archiveReport(){
+    const out=[];
+    try{
+      const pm=window._pmArchive;
+      if(!pm)return 'archive not opened';
+      const h=await pm.getHeader();
+      out.push('zooms '+h.minZoom+'-'+h.maxZoom);
+      out.push('tiles '+(h.tileType===1?'MVT ok':'type '+h.tileType));
+      let meta=null; try{ meta=await pm.getMetadata(); }catch(e){ out.push('meta failed'); }
+      let inFile=[];
+      if(meta){
+        const vl=meta.vector_layers||meta.vectorLayers;
+        if(vl&&vl.length)inFile=vl.map(l=>l.id);
+        else if(meta.tilestats&&meta.tilestats.layers)inFile=meta.tilestats.layers.map(l=>l.layer);
+      }
+      const want=['earth','water','roads','landcover','landuse','buildings','boundaries'];
+      const hit=want.filter(w=>inFile.indexOf(w)>=0);
+      out.push('layers in file: '+(inFile.length?inFile.join(','):'none listed'));
+      out.push('style matches: '+hit.length+'/'+want.length);
+      // fetch a real tile over London at z10
+      const z=10, lat=51.5, lng=-0.12, n=Math.pow(2,z);
+      const x=Math.floor((lng+180)/360*n);
+      const r=lat*Math.PI/180;
+      const y=Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*n);
+      try{ const t=await pm.getZxy(z,x,y); out.push('London tile: '+(t&&t.data?t.data.byteLength+' bytes':'EMPTY')); }
+      catch(e){ out.push('tile error: '+((e&&e.message)||e)); }
+    }catch(e){ out.push('report failed: '+((e&&e.message)||e)); }
+    return out.join('\n');
   }
   const _style=await chooseStyle();
   const map=new maplibregl.Map({container:'map',style:_style,center:[-2.6,54.2],zoom:5,attributionControl:true,dragRotate:true,pitchWithRotate:false,maxPitch:0,renderWorldCopies:false});
@@ -417,7 +510,7 @@
     map.addSource('live',{type:'geojson',data:emptyFC()});
     map.addLayer({id:'live-line',type:'line',source:'live',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':css('--rec')||'#e6483d','line-width':6,'line-opacity':.95}});
   }
-  map.on('load',()=>{ addAppLayers(); mapReady=true; _readyQ.splice(0).forEach(fn=>{try{fn();}catch(e){}}); renderOverlay(); });
+  map.on('load',()=>{ try{localStorage.removeItem(OFF_FLAG);}catch(e){} addAppLayers(); mapReady=true; _readyQ.splice(0).forEach(fn=>{try{fn();}catch(e){}}); renderOverlay(); });
 
   const PALETTE=['#2DD4BF','#5FB87A','#C78BE6','#5B8DEF','#E0A93B','#9B8CFF','#54C7A8','#7FD1F2','#EE8B5B','#F2A24A'];
   const OUTLINE='#22D3EE'; // boss's area outline (cyan)
@@ -867,8 +960,14 @@
   startIdleWatch();
   if(OFFLINE){
     onMapReady(()=>toast('Offline England & Wales map active'));
-    setTimeout(()=>{ if(mapDiag.mapErr) modal({title:'Map problem',message:'The offline map loaded but reported: '+mapDiag.mapErr,ok:'OK'}); },6000);
+    setTimeout(async()=>{ const rep=await archiveReport(); modal({title:'Map file check',message:rep+(mapDiag.mapErr?('\nmap error: '+mapDiag.mapErr):'\nno map errors'),ok:'OK'}); },5000);
   } else if(await offlineMapReady()){
+    setTimeout(async()=>{
+      const why=offlineBlocked()?'The offline map crashed the app last time, so it is switched off.':(lastMapError||'The offline map is not switched on.');
+      const go=await modal({title:'Offline map',message:why+'\n\nTry using it again?',ok:'Try it'});
+      if(go){ try{localStorage.setItem(OFF_ON,'1');localStorage.removeItem(OFF_BAD);}catch(e){} location.reload(); }
+    },1500);
+  } else if(false){
     // File is downloaded but we couldn't use it — show why
     setTimeout(()=>modal({title:'Offline map not used',message:(lastMapError||'Unknown reason')+'\n\nFile: '+mapDiag.file+'\nRange test: '+mapDiag.range+'\nURL: '+mapDiag.url,ok:'OK'}),1200);
   } else { offerOfflineDownload(); }

@@ -68,6 +68,7 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(RoadbookFile.class);
         super.onCreate(savedInstanceState);
         // On Android 11+, saving to the visible Documents folder needs all-files access.
         // Send the user to the system toggle once; after they allow it, this never fires again.
@@ -87,4 +88,74 @@ public class MainActivity extends BridgeActivity {
 `;
   writeFileSync(mainActivity, java);
   console.log('Patched MainActivity for all-files access at', mainActivity);
+
+  /* ---------- 3. Native file-slice reader (for the offline map) ---------- */
+  // Reads small byte ranges straight off disk with RandomAccessFile - the same
+  // approach native map apps use. Avoids the WebView HTTP layer entirely.
+  const pluginJava = `package ${pkg};
+
+import android.util.Base64;
+import com.getcapacitor.JSObject;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+import java.io.File;
+import java.io.RandomAccessFile;
+
+@CapacitorPlugin(name = "RoadbookFile")
+public class RoadbookFile extends Plugin {
+
+    private static String clean(String p) {
+        if (p == null) return null;
+        if (p.startsWith("file://")) p = p.substring(7);
+        return p;
+    }
+
+    @PluginMethod
+    public void size(PluginCall call) {
+        String path = clean(call.getString("path"));
+        if (path == null) { call.reject("no path"); return; }
+        File f = new File(path);
+        JSObject ret = new JSObject();
+        ret.put("size", f.exists() ? f.length() : 0);
+        ret.put("exists", f.exists());
+        call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void readSlice(PluginCall call) {
+        String path = clean(call.getString("path"));
+        Double offD = call.getDouble("offset");
+        Integer lenI = call.getInt("length");
+        if (path == null || offD == null || lenI == null) { call.reject("bad args"); return; }
+        long offset = offD.longValue();
+        int length = lenI.intValue();
+        if (length <= 0 || length > 33554432) { call.reject("bad length"); return; }
+        RandomAccessFile raf = null;
+        try {
+            raf = new RandomAccessFile(path, "r");
+            raf.seek(offset);
+            byte[] buf = new byte[length];
+            int total = 0;
+            while (total < length) {
+                int n = raf.read(buf, total, length - total);
+                if (n < 0) break;
+                total += n;
+            }
+            JSObject ret = new JSObject();
+            ret.put("data", Base64.encodeToString(buf, 0, total, Base64.NO_WRAP));
+            ret.put("length", total);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("read failed: " + e.getMessage());
+        } finally {
+            if (raf != null) { try { raf.close(); } catch (Exception ignored) {} }
+        }
+    }
+}
+`;
+  const pluginPath = join(mainActivity, '..', 'RoadbookFile.java');
+  writeFileSync(pluginPath, pluginJava);
+  console.log('Wrote native file-slice plugin at', pluginPath);
 }

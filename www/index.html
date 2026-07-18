@@ -314,7 +314,18 @@
     if(!hasOPFS())return false;
     try{ if(!localStorage.getItem('mapReady'))return false; const root=await navigator.storage.getDirectory(); const fh=await root.getFileHandle(MAP_FILE); const f=await fh.getFile(); return f.size>1000000; }catch(e){ return false; }
   }
+  // Ask Android to let us keep a big file (otherwise the quota is small and writes get rejected)
+  async function ensureQuota(){
+    let persisted=false, quota=0, usage=0;
+    try{ if(navigator.storage.persist) persisted=await navigator.storage.persist(); }catch(e){}
+    try{ const est=await navigator.storage.estimate(); quota=est.quota||0; usage=est.usage||0; }catch(e){}
+    return {persisted,quota,usage,free:Math.max(0,quota-usage)};
+  }
   async function downloadMapToOpfs(onProgress){
+    const q=await ensureQuota();
+    if(q.quota&&q.free<1300000000){
+      const e=new Error('QUOTA'); e.info=Math.round(q.free/1048576)+' MB allowed'; throw e;
+    }
     const root=await navigator.storage.getDirectory();
     const fh=await root.getFileHandle(MAP_FILE,{create:true});
     const w=await fh.createWritable();
@@ -338,11 +349,22 @@
       await downloadMapToOpfs((got,total)=>{ const pct=total?Math.round(got/total*100):null; const v=(pct!=null)?pct:Math.round(got/1048576); if(v!==last){last=v; toast('Downloading offline map… '+(pct!=null?pct+'%':v+' MB')); } });
       toast('Offline map saved — reloading');
       setTimeout(()=>location.reload(),1400);
-    }catch(e){ toast('Download failed — check Wi‑Fi and try again'); }
+    }catch(e){
+      const name=(e&&e.name)||'', msg=(e&&e.message)||String(e);
+      let why;
+      if(msg==='QUOTA') why='Not enough storage allowed: only '+(e.info||'?')+'. Free up space, or use a smaller map.';
+      else if(name==='QuotaExceededError'||/quota|storage/i.test(msg)) why='Tablet ran out of allowed storage part-way through.';
+      else if(/HTTP 404/.test(msg)) why='Map file not found at the release link (404).';
+      else if(/HTTP/.test(msg)) why='Server said: '+msg;
+      else if(name==='TypeError'||/fetch|network|Failed to fetch/i.test(msg)) why='Network blocked the download (CORS or connection).';
+      else why=(name?name+': ':'')+msg;
+      lastMapError=why;
+      await modal({title:'Download failed',message:why,ok:'OK'});
+    }
   }
 
   // Register the pmtiles protocol once, then choose the map style
-  let OFFLINE=false;
+  let OFFLINE=false, lastMapError='';
   try{ const _p=new pmtiles.Protocol(); maplibregl.addProtocol('pmtiles',_p.tile); window._pmProto=_p; }catch(e){}
   async function chooseStyle(){
     if(window.pmtiles&&window.PM_LAYERS&&await offlineMapReady()){

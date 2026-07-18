@@ -314,12 +314,20 @@
     const end=offset+length-1;
     const res=await fetch(this._url,{headers:{Range:'bytes='+offset+'-'+end}});
     if(res.status===206){return {data:await res.arrayBuffer()};}
-    if(res.status===200){ // server ignored Range — slice the blob instead of buffering
-      const blob=await res.blob();
-      return {data:await blob.slice(offset,offset+length).arrayBuffer()};
-    }
+    // Never buffer the whole 1.1 GB file — that would hang the tablet.
+    if(res.status===200){ throw new Error('NORANGE'); }
     throw new Error('Range request failed: HTTP '+res.status);
   };
+
+  // Startup self-test: can we actually read a small slice of the map file?
+  async function testRange(url){
+    try{
+      const res=await fetch(url,{headers:{Range:'bytes=0-15'}});
+      if(res.status===206){ const b=await res.arrayBuffer(); return {ok:true,detail:'206, '+b.byteLength+' bytes'}; }
+      if(res.status===200) return {ok:false,detail:'server ignored Range (returned 200 = whole file)'};
+      return {ok:false,detail:'HTTP '+res.status};
+    }catch(e){ return {ok:false,detail:'fetch failed: '+((e&&e.message)||e)}; }
+  }
 
   async function mapFileInfo(){
     const FS=fsPlugin(); if(!FS)return null;
@@ -371,6 +379,7 @@
 
   // Register the pmtiles protocol once, then choose the map style
   let OFFLINE=false, lastMapError='';
+  const mapDiag={file:'-',url:'-',range:'-',mapErr:''};
   try{ const _p=new pmtiles.Protocol(); maplibregl.addProtocol('pmtiles',_p.tile); window._pmProto=_p; }catch(e){}
   async function chooseStyle(){
     if(!window.pmtiles||!window.PM_LAYERS)return MAP_STYLE;
@@ -378,6 +387,11 @@
       const info=await mapFileInfo();
       if(!info)return MAP_STYLE;
       const src=(window.Capacitor&&window.Capacitor.convertFileSrc)?window.Capacitor.convertFileSrc(info.uri):info.uri;
+      mapDiag.file=Math.round(info.size/1048576)+' MB';
+      mapDiag.url=String(src).slice(0,60);
+      const rt=await testRange(src);
+      mapDiag.range=rt.detail;
+      if(!rt.ok){ lastMapError='Cannot read the map file in pieces — '+rt.detail; return MAP_STYLE; }
       window._pmProto.add(new pmtiles.PMTiles(new RangeSource(PM_KEY,src,info.size)));
       OFFLINE=true;
       return {version:8,sources:{protomaps:{type:'vector',url:'pmtiles://'+PM_KEY,attribution:'© OpenStreetMap'}},layers:window.PM_LAYERS};
@@ -385,6 +399,7 @@
   }
   const _style=await chooseStyle();
   const map=new maplibregl.Map({container:'map',style:_style,center:[-2.6,54.2],zoom:5,attributionControl:true,dragRotate:true,pitchWithRotate:false,maxPitch:0,renderWorldCopies:false});
+  map.on('error',e=>{ const m=(e&&e.error&&e.error.message)||(e&&e.message)||'unknown'; if(!mapDiag.mapErr)mapDiag.mapErr=String(m).slice(0,140); });
   map.addControl(new maplibregl.ScaleControl({unit:'imperial'}),'top-right');
   map.addControl(new maplibregl.ScaleControl({unit:'metric'}),'top-right');
 
@@ -850,8 +865,13 @@
     p=>{lastFix={lat:p.coords.latitude,lng:p.coords.longitude,t:Date.now(),spd:null};onMapReady(()=>{if(!gpsMarker)gpsMarker=new maplibregl.Marker({element:gpsEl}).setLngLat([lastFix.lng,lastFix.lat]).addTo(map);if(following)map.easeTo({center:[lastFix.lng,lastFix.lat],zoom:15});});},
     ()=>{},{enableHighAccuracy:true,timeout:8000});}
   startIdleWatch();
-  if(OFFLINE){ onMapReady(()=>toast('Offline England & Wales map active')); }
-  else { offerOfflineDownload(); }
+  if(OFFLINE){
+    onMapReady(()=>toast('Offline England & Wales map active'));
+    setTimeout(()=>{ if(mapDiag.mapErr) modal({title:'Map problem',message:'The offline map loaded but reported: '+mapDiag.mapErr,ok:'OK'}); },6000);
+  } else if(await offlineMapReady()){
+    // File is downloaded but we couldn't use it — show why
+    setTimeout(()=>modal({title:'Offline map not used',message:(lastMapError||'Unknown reason')+'\n\nFile: '+mapDiag.file+'\nRange test: '+mapDiag.range+'\nURL: '+mapDiag.url,ok:'OK'}),1200);
+  } else { offerOfflineDownload(); }
 })();
 </script>
 </body>
